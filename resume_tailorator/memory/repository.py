@@ -53,6 +53,10 @@ class ResumeMemoryRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_source_by_id(self, source_id: str) -> ResumeSourceRecord | None:
+        raise NotImplementedError
+
+    @abstractmethod
     def save_tailored_resume(
         self,
         source_id: str,

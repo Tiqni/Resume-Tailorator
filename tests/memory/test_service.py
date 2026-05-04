@@ -99,6 +99,9 @@ class FakeRepository(ResumeMemoryRepository):
                 return s
         return None
 
+    def get_source_by_id(self, source_id: str) -> ResumeSourceRecord | None:
+        return self._sources.get(source_id)
+
     def upsert_original_source(
         self,
         path: str,

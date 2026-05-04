@@ -182,6 +182,18 @@ class SQLiteResumeMemoryRepository(ResumeMemoryRepository):
             self._conn.execute(_CREATE_ORIGINAL_RESUME_SOURCES)
             self._conn.execute(_CREATE_PARSED_ORIGINAL_RESUMES)
             self._conn.execute(_CREATE_TAILORED_RESUMES)
+            self._migrate_tailored_resumes()
+
+    def _migrate_tailored_resumes(self) -> None:
+        """Add job_posting_markdown column if upgrading from older schema."""
+        cur = self._conn.execute("PRAGMA table_info(tailored_resumes)")
+        columns = {row["name"] for row in cur.fetchall()}
+        if "job_posting_markdown" not in columns:
+            # SQLite <3.35 doesn't support ALTER TABLE ADD COLUMN ... DEFAULT
+            # but modern Pythons ship with SQLite >=3.35, so simple add works.
+            self._conn.execute(
+                "ALTER TABLE tailored_resumes ADD COLUMN job_posting_markdown TEXT NOT NULL DEFAULT ''"
+            )
 
     def _ensure_source_exists(self, source_id: str) -> None:
         """Raise ResumeMemoryError if source_id is not in the DB."""
@@ -447,6 +459,14 @@ class SQLiteResumeMemoryRepository(ResumeMemoryRepository):
             created_at=_parse_ts(created_at_str),
             updated_at=now,
         )
+
+    def get_source_by_id(self, source_id: str) -> ResumeSourceRecord | None:
+        cur = self._conn.execute(
+            "SELECT * FROM original_resume_sources WHERE id = ?",
+            (source_id,),
+        )
+        row = cur.fetchone()
+        return _row_to_source(row) if row else None
 
     def get_tailored_resume(self, job_fingerprint: str) -> TailoredResumeRecord | None:
         cur = self._conn.execute(
