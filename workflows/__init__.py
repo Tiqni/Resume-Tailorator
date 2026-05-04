@@ -109,6 +109,8 @@ class ResumeTailorWorkflow:
 
         total_usage = RunUsage()
 
+        total_usage = RunUsage()
+
         # --- STEP 0: PARSE ORIGINAL RESUME ---
         self._set_stage("PARSING_RESUME")
         print("🤖 Agent 0 (Parser): Parsing original resume...")
