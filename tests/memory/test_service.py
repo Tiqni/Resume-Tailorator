@@ -179,6 +179,7 @@ class FakeRepository(ResumeMemoryRepository):
         job_title: str,
         tailored_cv_json: str,
         audit_report_json: str,
+        job_posting_markdown: str = "",
     ) -> TailoredResumeRecord:
         now = datetime.now(timezone.utc)
         existing = self._tailored.get(job_fingerprint)
@@ -190,6 +191,7 @@ class FakeRepository(ResumeMemoryRepository):
             job_title=job_title,
             tailored_cv_json=tailored_cv_json,
             audit_report_json=audit_report_json,
+            job_posting_markdown=job_posting_markdown,
             created_at=existing.created_at if existing else now,
             updated_at=now,
         )
@@ -198,6 +200,12 @@ class FakeRepository(ResumeMemoryRepository):
 
     def get_tailored_resume(self, job_fingerprint: str) -> TailoredResumeRecord | None:
         return self._tailored.get(job_fingerprint)
+
+    def get_tailored_resume_by_id(self, record_id: str) -> TailoredResumeRecord | None:
+        for record in self._tailored.values():
+            if record.id == record_id:
+                return record
+        return None
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,7 @@ class TailoredResumeRecord(BaseModel):
     job_title: str
     tailored_cv_json: str
     audit_report_json: str
+    job_posting_markdown: str = ""
     created_at: AwareDatetime
     updated_at: AwareDatetime
 

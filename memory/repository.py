@@ -67,3 +67,7 @@ class ResumeMemoryRepository(ABC):
     @abstractmethod
     def get_tailored_resume(self, job_fingerprint: str) -> TailoredResumeRecord | None:
         raise NotImplementedError
+
+    @abstractmethod
+    def get_tailored_resume_by_id(self, record_id: str) -> TailoredResumeRecord | None:
+        raise NotImplementedError
