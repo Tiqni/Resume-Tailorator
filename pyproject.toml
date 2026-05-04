@@ -17,6 +17,9 @@ dependencies = [
     "typer>=0.25.1",
 ]
 
+[project.scripts]
+resume-tailor = "main:run"
+
 [dependency-groups]
 dev = [
     "anyio>=4.11.0",
@@ -29,3 +32,6 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.uv]
+package = false
