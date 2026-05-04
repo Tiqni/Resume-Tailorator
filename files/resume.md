@@ -114,6 +114,6 @@ Cairo, Egypt, May 2009
 
 ### PUBLICATIONS
 
-- **The Query Strikes Again** — published Nov 2023 on Slack Engineering Blog  
-- **TechSpresso Podcast**  
-- **My Technical Blog**  
+* [**The Query Strikes Again**](https://slack.engineering/the-query-strikes-again/)published in Nov. 2023 on Slack Engineering Blog
+* [**TechSpresso Podcast**](https://blog.emadmokhtar.com/techspresso-podcast/)
+* [**My Technical Blog**](https://blog.emadmokhtar.com/)
