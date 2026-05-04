@@ -9,7 +9,6 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from resume_tailorator.memory.models import ResolvedOriginalResume
 from resume_tailorator.memory.parser import PydanticAIResumeParser
 from resume_tailorator.memory.service import ResumeMemoryService
 from resume_tailorator.memory.sqlite_repository import SQLiteResumeMemoryRepository
@@ -193,6 +192,7 @@ async def _tailor_impl(
 
     resume_content = ""
     resume_ext = os.path.splitext(resume_path_expanded)[1].lower()
+    converted_resume_path: str | None = None
 
     if resume_ext in (".docx", ".pdf"):
         try:
@@ -267,7 +267,10 @@ async def _tailor_impl(
             parser = PydanticAIResumeParser()
             service = ResumeMemoryService(repository=repo, parser=parser)
 
-            resolved = service.resolve_original_resume(path=resume_path_expanded)
+            # Use converted markdown path for non-markdown resumes so
+            # resolve_original_resume can read it as text.
+            source_path = converted_resume_path or resume_path_expanded
+            resolved = service.resolve_original_resume(path=source_path)
             job_fingerprint = _get_job_fingerprint(job_url, result.job_title)
 
             audit = _audit_result_from_dict(result.audit_report)
@@ -335,27 +338,45 @@ async def _re_tailor_impl(
         f"📋 Found prior job: {tailored_record.company_name} / {tailored_record.job_title}"
     )
 
-    # Resolve resume — prefer explicit path, then original source path, then fall back to latest.
+    # Resolve resume path and read original text content.
+    _resume_source_path: str | None = None
     if resume_path:
-        resume_path_expanded = os.path.expanduser(resume_path)
-        if not os.path.exists(resume_path_expanded):
-            console.print(f"[red]❌ Resume file not found at {resume_path_expanded}[/red]")
+        _resume_source_path = os.path.expanduser(resume_path)
+        if not os.path.exists(_resume_source_path):
+            console.print(f"[red]❌ Resume file not found at {_resume_source_path}[/red]")
             raise typer.Exit(code=1)
-        resolved = service.resolve_original_resume(path=resume_path_expanded)
+        resolved = service.resolve_original_resume(path=_resume_source_path)
     else:
         source = repo.get_source_by_id(tailored_record.source_id)
         if source is not None and Path(source.path).exists():
             console.print("📄 Using original resume from prior job")
-            resolved = service.resolve_original_resume(path=source.path)
+            _resume_source_path = source.path
+            resolved = service.resolve_original_resume(path=_resume_source_path)
         else:
             console.print("📄 Using latest stored resume")
             try:
                 resolved = service.resolve_original_resume(path=None)
+                _resume_source_path = resolved.source.path
             except Exception as e:
                 console.print(f"[red]❌ Could not resolve original resume: {e}[/red]")
                 raise typer.Exit(code=1)
 
-    resume_content = resolved.cv.model_dump_json()
+    # Read actual file content as text — never round-trip through parsed CV JSON.
+    ext = os.path.splitext(_resume_source_path)[1].lower() if _resume_source_path else ""
+    if ext in (".docx", ".pdf"):
+        try:
+            registry = InputConverterRegistry()
+            resume_content = registry.get(ext).convert(_resume_source_path)
+        except Exception as e:
+            console.print(f"[red]❌ Failed to convert resume: {e}[/red]")
+            raise typer.Exit(code=1)
+    else:
+        try:
+            with open(_resume_source_path, encoding="utf-8") as f:
+                resume_content = f.read()
+        except Exception as e:
+            console.print(f"[red]❌ Error reading resume file: {e}[/red]")
+            raise typer.Exit(code=1)
 
     job_posting_markdown = tailored_record.job_posting_markdown
     if not job_posting_markdown:
