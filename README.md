@@ -150,7 +150,7 @@ Each workflow run generates a **self-review report** that includes:
 The system includes built-in quality validation for every agent:
 
 - **Validation Threshold**: Each agent's output must score 9/10 or higher to proceed
-- **Automatic Retry**: If validation fails, the agent receives corrective feedback and retries (up to 2 retries)
+- **Automatic Retry**: If validation fails, the agent receives corrective feedback and retries. Retry counts are agent-specific: quality-gated agents are currently configured with `retries=5`, while the job scraper uses `retries=3`.
 - **Graceful Fallback**: On quality gate exhaustion, the system uses the last available output instead of failing fatally
 - **Token Usage Tracking**: All validation runs are included in usage metrics for accurate cost tracking
 
