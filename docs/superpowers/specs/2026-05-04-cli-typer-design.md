@@ -98,7 +98,7 @@ Use existing SQLite database via memory service.
 |----------|----------|
 | Missing required arg | Exit 1, Typer error with usage hint |
 | Invalid URL format | Exit 1, clear error message |
-| Resume file not found | Exit 1, print error with path |
+| Resume file not found | Exit 1, clear error message including the path |
 | Job ID not found | Exit 1, "Job not found: <id>" |
 | Scraping failure | Exit 1, tip about public URL |
 | Workflow audit failed | Save report, print feedback, exit 0 |

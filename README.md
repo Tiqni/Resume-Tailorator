@@ -121,8 +121,8 @@ uv run python resume_tailorator/main.py tailor <JOB_URL> <RESUME_PATH>
 Upon successful completion, output files are saved in the `output/` directory (or the path specified via `--output-dir`):
 
 *   `tailored_resume_<Company_Name>.md` — Tailored resume in Markdown format
-*   `tailored_resume_<company_name>.pdf` — Tailored resume in PDF format
-*   `tailored_resume_<company_name>.docx` — Tailored resume in DOCX format
+*   `tailored_resume_<Company_Name>.pdf` — Tailored resume in PDF format
+*   `tailored_resume_<Company_Name>.docx` — Tailored resume in DOCX format
 *   `report_<company_name>.md` — Comprehensive self-review report
 
 ## 🧠 Resume Memory Behavior
@@ -150,7 +150,7 @@ Each workflow run generates a **self-review report** that includes:
 The system includes built-in quality validation for every agent:
 
 - **Validation Threshold**: Core pipeline agents' output must score 9/10 or higher to proceed
-- **Automatic Retry**: If validation fails, the agent receives corrective feedback and retries (up to 5 retries)
+- **Automatic Retry**: If validation fails, the agent receives corrective feedback and retries. Retry counts are agent-specific: quality-gated agents are currently configured with `retries=5`, while the job scraper uses `retries=3`.
 - **Graceful Fallback**: On quality gate exhaustion, the system uses the last available output instead of failing fatally
 - **Token Usage Tracking**: All validation runs are included in usage metrics for accurate cost tracking
 
