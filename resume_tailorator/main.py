@@ -4,6 +4,8 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
+from datetime import date
 from pathlib import Path
 
 import typer
@@ -41,6 +43,28 @@ def _get_company_slug(company_name: str) -> str:
 
 def _get_job_fingerprint(job_url: str, job_title: str) -> str:
     return hashlib.sha256(f"{job_url}:{job_title}".encode()).hexdigest()[:32]
+
+
+def _slugify(text: str) -> str:
+    """Convert text to a filesystem-safe slug."""
+    text = text.lower().replace(" ", "_")
+    text = re.sub(r"[^a-z0-9_]", "", text)
+    return text
+
+
+def _resolve_pattern(template: str, result: ResumeTailorResult, cv: CV) -> str:
+    """Replace template variables with slugified values from result and CV."""
+    timestamp = date.today().strftime("%Y%m%d")
+    replacements = {
+        "{company_name}": _slugify(result.company_name),
+        "{job_title}": _slugify(result.job_title),
+        "{full_name}": _slugify(cv.full_name),
+        "{timestamp}": timestamp,
+    }
+    resolved = template
+    for variable, value in replacements.items():
+        resolved = resolved.replace(variable, value)
+    return resolved
 
 
 def _audit_result_from_dict(audit_dict: dict) -> AuditResult:
@@ -125,6 +149,8 @@ async def _run_workflow(
     output_dir: str,
     model: str | None,
     recommendations: str = "",
+    output_pattern: str = "{company_name}-{job_title}",
+    resume_name_pattern: str = "{company_name}-{full_name}",
 ) -> tuple[int, str | None, str | None, ResumeTailorResult]:
     workflow = ResumeTailorWorkflow()
 
@@ -143,9 +169,19 @@ async def _run_workflow(
     resume_path = None
     report_path = None
 
+    # Parse CV once for pattern resolution (used in both passed and failed cases)
+    cv = CV.model_validate_json(result.tailored_resume)
+
+    # Resolve directory and file name patterns
+    job_dir_name = _resolve_pattern(output_pattern, result, cv)
+    job_dir = os.path.join(output_dir, job_dir_name)
+    os.makedirs(job_dir, exist_ok=True)
+
+    resume_base_name = _resolve_pattern(resume_name_pattern, result, cv)
+
     if result.passed:
         console.print("\n✅ Audit Passed. Saving CV...")
-        resume_path = generate_resume(result, output_dir=output_dir)
+        resume_path = generate_resume(result, job_dir, resume_base_name)
     else:
         console.print("\n❌ Audit Failed. Please review the feedback and try again.")
         feedback = result.audit_report.get("feedback_summary", "No feedback available")
@@ -155,8 +191,7 @@ async def _run_workflow(
         _print_report_to_console(result.final_report)
 
         report_md = generate_report_markdown(result.final_report)
-        company_slug = _get_company_slug(result.company_name)
-        report_path = os.path.join(output_dir, f"report_{company_slug}.md")
+        report_path = os.path.join(job_dir, f"{resume_base_name}_report.md")
 
         try:
             with open(report_path, "w", encoding="utf-8") as f:
@@ -175,6 +210,8 @@ async def _tailor_impl(
     resume_path: str,
     output_dir: str,
     model: str | None,
+    output_pattern: str = "{company_name}-{job_title}",
+    resume_name_pattern: str = "{company_name}-{full_name}",
 ) -> int:
     """Async implementation of tailor command."""
     if not job_url.startswith(("http://", "https://")):
@@ -259,6 +296,8 @@ async def _tailor_impl(
         job_posting_markdown,
         output_dir,
         model,
+        output_pattern=output_pattern,
+        resume_name_pattern=resume_name_pattern,
     )
 
     if exit_code == 0:
@@ -310,9 +349,26 @@ def tailor(
     resume_path: str = typer.Argument(..., help="Path to resume (Markdown, DOCX, PDF)"),
     output_dir: str = typer.Option("./output", help="Directory for output files"),
     model: str | None = typer.Option(None, help="AI model to use (e.g., openai:gpt-4o-mini)"),
+    output_pattern: str = typer.Option(
+        "{company_name}-{job_title}",
+        help="Template for the job-specific subdirectory name",
+    ),
+    resume_name_pattern: str = typer.Option(
+        "{company_name}-{full_name}",
+        help="Template for the resume file base name (without extension)",
+    ),
 ) -> int:
     """Run the full resume tailoring workflow."""
-    return asyncio.run(_tailor_impl(job_url, resume_path, output_dir, model))
+    return asyncio.run(
+        _tailor_impl(
+            job_url,
+            resume_path,
+            output_dir,
+            model,
+            output_pattern=output_pattern,
+            resume_name_pattern=resume_name_pattern,
+        )
+    )
 
 
 async def _re_tailor_impl(
@@ -321,6 +377,8 @@ async def _re_tailor_impl(
     resume_path: str | None,
     output_dir: str,
     model: str | None,
+    output_pattern: str = "{company_name}-{job_title}",
+    resume_name_pattern: str = "{company_name}-{full_name}",
 ) -> int:
     """Async implementation of re-tailor command."""
     os.makedirs(output_dir, exist_ok=True)
@@ -398,6 +456,8 @@ async def _re_tailor_impl(
         output_dir,
         model,
         recommendations=recommendations,
+        output_pattern=output_pattern,
+        resume_name_pattern=resume_name_pattern,
     )
 
     if exit_code == 0:
@@ -439,9 +499,27 @@ def re_tailor(
     resume_path: str | None = typer.Option(None, help="Path to resume (uses stored path if omitted)"),
     output_dir: str = typer.Option("./output", help="Directory for output files"),
     model: str | None = typer.Option(None, help="AI model to use"),
+    output_pattern: str = typer.Option(
+        "{company_name}-{job_title}",
+        help="Template for the job-specific subdirectory name",
+    ),
+    resume_name_pattern: str = typer.Option(
+        "{company_name}-{full_name}",
+        help="Template for the resume file base name (without extension)",
+    ),
 ) -> int:
     """Re-run tailoring with recommendations from a prior audit."""
-    return asyncio.run(_re_tailor_impl(job_id, recommendations, resume_path, output_dir, model))
+    return asyncio.run(
+        _re_tailor_impl(
+            job_id,
+            recommendations,
+            resume_path,
+            output_dir,
+            model,
+            output_pattern=output_pattern,
+            resume_name_pattern=resume_name_pattern,
+        )
+    )
 
 
 def run():

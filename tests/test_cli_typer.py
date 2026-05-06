@@ -1,5 +1,6 @@
 """Tests for CLI with Typer - tailor and re-tailor commands."""
 
+from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 import os
 
@@ -629,3 +630,151 @@ def test_re_tailor_missing_original_source_file(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 1
     assert "Original resume not found at recorded path" in result.output
     assert "--resume-path" in result.output
+
+
+def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
+    """tailor command with custom patterns should create correctly named files."""
+    resume_file = tmp_path / "resume.md"
+    resume_file.write_text("# Jane Doe\nPython developer.")
+
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+
+    monkeypatch.chdir(tmp_path)
+
+    cv = _make_cv()
+    workflow_result = _make_result(cv=cv, passed=True)
+
+    mock_workflow = MagicMock()
+    mock_workflow.run = AsyncMock(return_value=workflow_result)
+
+    captured_args = {}
+
+    def mock_generate_resume(result, output_dir, base_filename):
+        captured_args["output_dir"] = output_dir
+        captured_args["base_filename"] = base_filename
+        return os.path.join(output_dir, f"{base_filename}.md")
+
+    scraped_job = _make_scraped_job()
+
+    with (
+        patch(
+            "resume_tailorator.main.job_scraper_agent.run",
+            AsyncMock(return_value=MagicMock(output=scraped_job)),
+        ),
+        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch("resume_tailorator.main.generate_resume", mock_generate_resume),
+        patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
+        patch("resume_tailorator.main.PydanticAIResumeParser") as mock_parser_cls,
+        patch("resume_tailorator.main.ResumeMemoryService") as mock_svc_cls,
+    ):
+        mock_repo = MagicMock()
+        mock_repo_cls.return_value = mock_repo
+        mock_parser = MagicMock()
+        mock_parser_cls.return_value = mock_parser
+        mock_svc = MagicMock()
+        mock_svc.resolve_original_resume.return_value = MagicMock(
+            source=MagicMock(id="src-123"),
+            cv=cv,
+        )
+        mock_svc.save_tailored_resume.return_value = MagicMock(id="job-456")
+        mock_svc_cls.return_value = mock_svc
+
+        result = runner.invoke(
+            app,
+            [
+                "tailor",
+                "https://example.com/job/123",
+                str(resume_file),
+                "--output-dir",
+                str(output_dir),
+                "--output-pattern",
+                "{company_name}-{timestamp}",
+                "--resume-name-pattern",
+                "{full_name}-{job_title}",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    mock_workflow.run.assert_called_once()
+
+    today = date.today().strftime("%Y%m%d")
+    expected_dir = str(output_dir / f"acme_corp-{today}")
+    expected_base = "jane_doe-software_engineer"
+    assert captured_args["output_dir"] == expected_dir
+    assert captured_args["base_filename"] == expected_base
+
+
+def test_re_tailor_custom_patterns(tmp_path, monkeypatch) -> None:
+    """re_tailor with custom patterns should create correctly named files."""
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    cv = _make_cv()
+    workflow_result = _make_result(cv=cv, passed=True)
+
+    mock_workflow = MagicMock()
+    mock_workflow.run = AsyncMock(return_value=workflow_result)
+
+    captured_args = {}
+
+    def mock_generate_resume(result, output_dir, base_filename):
+        captured_args["output_dir"] = output_dir
+        captured_args["base_filename"] = base_filename
+        return os.path.join(output_dir, f"{base_filename}.md")
+
+    resume_file = tmp_path / "resume.md"
+    resume_file.write_text("# Jane Smith\n\nPython developer", encoding="utf-8")
+
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch("resume_tailorator.main.generate_resume", mock_generate_resume),
+        patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
+        patch("resume_tailorator.main.PydanticAIResumeParser") as mock_parser_cls,
+        patch("resume_tailorator.main.ResumeMemoryService") as mock_svc_cls,
+    ):
+        mock_repo = MagicMock()
+        mock_repo.get_tailored_resume_by_id.return_value = MagicMock(
+            source_id="src-123",
+            company_name="Acme Corp",
+            job_title="Software Engineer",
+            job_fingerprint="fp123",
+            job_posting_markdown="# Job Posting\nPython engineer",
+        )
+        mock_repo.get_source_by_id.return_value = MagicMock(path=str(resume_file))
+        mock_repo_cls.return_value = mock_repo
+
+        mock_parser = MagicMock()
+        mock_parser_cls.return_value = mock_parser
+
+        mock_svc = MagicMock()
+        mock_svc.resolve_original_resume.return_value = MagicMock(
+            source=MagicMock(id="src-123", path=str(resume_file)),
+            cv=cv,
+        )
+        mock_svc_cls.return_value = mock_svc
+
+        result = runner.invoke(
+            app,
+            [
+                "re-tailor",
+                "job-456",
+                "Add more detail about leadership skills",
+                "--output-dir",
+                str(output_dir),
+                "--output-pattern",
+                "{timestamp}-{company_name}",
+                "--resume-name-pattern",
+                "{job_title}-{full_name}",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    mock_workflow.run.assert_called_once()
+
+    today = date.today().strftime("%Y%m%d")
+    expected_dir = str(output_dir / f"{today}-acme_corp")
+    expected_base = "software_engineer-jane_doe"
+    assert captured_args["output_dir"] == expected_dir
+    assert captured_args["base_filename"] == expected_base
