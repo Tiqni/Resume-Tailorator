@@ -9,6 +9,14 @@ uv run resume-tailor tailor <JOB_URL> <RESUME_PATH>          # scrape + tailor
 uv run resume-tailor re-tailor <JOB_ID> <RECOMMENDATIONS>    # re-run with feedback
 ```
 
+## Development Workflow
+
+**Always create a feature branch before building a spec.** Never commit design specs or implementation plans directly to `main`. Create a branch first, then write the spec, get approval, and implement on that branch.
+
+```bash
+git checkout -b <feature-name>
+```
+
 ## CLI Commands
 
 Two Typer subcommands in `resume_tailorator/main.py`:
