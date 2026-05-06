@@ -115,6 +115,9 @@ def test_tailor_command_success(tmp_path, monkeypatch) -> None:
             source=MagicMock(id="src-123"),
             cv=cv,
         )
+        mock_svc.aresolve_original_resume = AsyncMock(
+            return_value=mock_svc.resolve_original_resume.return_value
+        )
         mock_svc.save_tailored_resume.return_value = MagicMock(id="job-456")
         mock_svc_cls.return_value = mock_svc
 
@@ -249,6 +252,9 @@ def test_tailor_command_failed_audit_exits_zero(tmp_path, monkeypatch) -> None:
             source=MagicMock(id="src-123"),
             cv=cv,
         )
+        mock_svc.aresolve_original_resume = AsyncMock(
+            return_value=mock_svc.resolve_original_resume.return_value
+        )
         mock_svc.save_tailored_resume.return_value = MagicMock(id="job-456")
         mock_svc_cls.return_value = mock_svc
 
@@ -346,6 +352,9 @@ def test_tailor_command_docx_conversion(tmp_path, monkeypatch) -> None:
             source=MagicMock(id="src-123"),
             cv=cv,
         )
+        mock_svc.aresolve_original_resume = AsyncMock(
+            return_value=mock_svc.resolve_original_resume.return_value
+        )
         mock_svc.save_tailored_resume.return_value = MagicMock(id="job-456")
         mock_svc_cls.return_value = mock_svc
 
@@ -410,6 +419,9 @@ def test_re_tailor_success(tmp_path, monkeypatch) -> None:
         mock_svc.resolve_original_resume.return_value = MagicMock(
             source=MagicMock(id="src-123", path=str(resume_file)),
             cv=cv,
+        )
+        mock_svc.aresolve_original_resume = AsyncMock(
+            return_value=mock_svc.resolve_original_resume.return_value
         )
         mock_svc_cls.return_value = mock_svc
 
@@ -486,6 +498,9 @@ def test_re_tailor_no_job_markdown(tmp_path, monkeypatch) -> None:
                 source=MagicMock(id="src-123", path=str(resume_file)),
                 cv=_make_cv(),
             )
+            mock_svc.aresolve_original_resume = AsyncMock(
+                return_value=mock_svc.resolve_original_resume.return_value
+            )
             mock_svc_cls.return_value = mock_svc
 
             result = runner.invoke(
@@ -540,6 +555,9 @@ def test_re_tailor_with_resume_path(tmp_path, monkeypatch) -> None:
             source=MagicMock(id="src-123"),
             cv=cv,
         )
+        mock_svc.aresolve_original_resume = AsyncMock(
+            return_value=mock_svc.resolve_original_resume.return_value
+        )
         mock_svc_cls.return_value = mock_svc
 
         result = runner.invoke(
@@ -558,7 +576,7 @@ def test_re_tailor_with_resume_path(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     # When --resume-path is passed, we should not call get_source_by_id.
     mock_repo.get_source_by_id.assert_not_called()
-    mock_svc.resolve_original_resume.assert_called_with(path=str(resume_file))
+    mock_svc.aresolve_original_resume.assert_awaited_with(path=str(resume_file))
 
 
 def test_re_tailor_missing_resume_file(tmp_path, monkeypatch) -> None:
@@ -677,6 +695,9 @@ def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
             source=MagicMock(id="src-123"),
             cv=cv,
         )
+        mock_svc.aresolve_original_resume = AsyncMock(
+            return_value=mock_svc.resolve_original_resume.return_value
+        )
         mock_svc.save_tailored_resume.return_value = MagicMock(id="job-456")
         mock_svc_cls.return_value = mock_svc
 
@@ -752,6 +773,9 @@ def test_re_tailor_custom_patterns(tmp_path, monkeypatch) -> None:
         mock_svc.resolve_original_resume.return_value = MagicMock(
             source=MagicMock(id="src-123", path=str(resume_file)),
             cv=cv,
+        )
+        mock_svc.aresolve_original_resume = AsyncMock(
+            return_value=mock_svc.resolve_original_resume.return_value
         )
         mock_svc_cls.return_value = mock_svc
 

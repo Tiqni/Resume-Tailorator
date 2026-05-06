@@ -353,7 +353,7 @@ async def _tailor_impl(
             # Use converted markdown path for non-markdown resumes so
             # resolve_original_resume can read it as text.
             source_path = converted_resume_path or resume_path_expanded
-            resolved = service.resolve_original_resume(path=source_path)
+            resolved = await service.aresolve_original_resume(path=source_path)
             job_fingerprint = _get_job_fingerprint(job_url, result.job_title)
 
             audit = _audit_result_from_dict(result.audit_report)
@@ -447,13 +447,13 @@ async def _re_tailor_impl(
         if not os.path.exists(_resume_source_path):
             console.print(f"[red]❌ Resume file not found at {_resume_source_path}[/red]")
             raise typer.Exit(code=1)
-        resolved = service.resolve_original_resume(path=_resume_source_path)
+        resolved = await service.aresolve_original_resume(path=_resume_source_path)
     else:
         source = repo.get_source_by_id(tailored_record.source_id)
         if source is not None and Path(source.path).exists():
             console.print("📄 Using original resume from prior job")
             _resume_source_path = source.path
-            resolved = service.resolve_original_resume(path=_resume_source_path)
+            resolved = await service.aresolve_original_resume(path=_resume_source_path)
         elif source is not None:
             # Original source is known but the file no longer exists on disk.
             console.print(

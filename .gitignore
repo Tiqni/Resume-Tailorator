@@ -191,3 +191,8 @@ cython_debug/
 # The tailored resume markdown
 output/
 .worktrees/
+
+# Resume memory SQLite database
+memory/
+*.sqlite3
+*.sqlite3-journal
