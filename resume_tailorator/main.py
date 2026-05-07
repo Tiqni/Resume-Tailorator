@@ -9,6 +9,7 @@ from datetime import date
 from pathlib import Path
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 
 from resume_tailorator.memory.parser import PydanticAIResumeParser
@@ -194,7 +195,7 @@ async def _run_workflow(
         try:
             cv = CV.model_validate_json(result.tailored_resume)
             full_name = cv.full_name
-        except Exception:
+        except (ValidationError, ValueError):
             full_name = ""
 
     # Build a minimal CV-like object for pattern resolution if parsing failed
