@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai.usage import UsageLimits
 
 from resume_tailorator.models.agents.output import (
     AuditResult,
@@ -51,8 +52,8 @@ def reset_model() -> None:
     global MODEL_NAME
     MODEL_NAME = _original_model
 
-# Higher request limit for all agents
-MODEL_SETTINGS = {"request_limit": 1000}
+MODEL_SETTINGS: dict = {}
+USAGE_LIMITS = UsageLimits(request_limit=1000)
 
 # --- Quality Gate Agent ---
 # Universal reviewer: scores any pipeline agent's output 0-10 and requests improvements.
@@ -344,6 +345,7 @@ async def _validate_resume_parser(ctx: RunContext[None], output: CV) -> CV:
     result = await quality_gate_agent.run(
         f"Role: Resume Parser\nOutput:\n{output.model_dump_json(indent=2)}",
         usage=ctx.usage,
+        usage_limits=USAGE_LIMITS,
     )
     check = result.output
     if check.score < 9:
@@ -361,6 +363,7 @@ async def _validate_auditor(ctx: RunContext[None], output: AuditResult) -> Audit
     result = await quality_gate_agent.run(
         f"Role: Auditor\nOutput:\n{output.model_dump_json(indent=2)}",
         usage=ctx.usage,
+        usage_limits=USAGE_LIMITS,
     )
     check = result.output
     if check.score < 9:
@@ -548,6 +551,7 @@ async def _validate_cover_letter_writer(ctx: RunContext[None], output: str) -> s
     result = await quality_gate_agent.run(
         f"Role: Cover Letter Writer\nOutput:\n{output}",
         usage=ctx.usage,
+        usage_limits=USAGE_LIMITS,
     )
     check = result.output
     if check.score < 9:
@@ -565,6 +569,7 @@ async def _validate_analyst(ctx: RunContext[None], output: JobAnalysis) -> JobAn
     result = await quality_gate_agent.run(
         f"Role: Job Analyst\nOutput:\n{output.model_dump_json(indent=2)}",
         usage=ctx.usage,
+        usage_limits=USAGE_LIMITS,
     )
     check = result.output
     if check.score < 9:
@@ -582,6 +587,7 @@ async def _validate_writer(ctx: RunContext[None], output: CV) -> CV:
     result = await quality_gate_agent.run(
         f"Role: CV Writer\nOutput:\n{output.model_dump_json(indent=2)}",
         usage=ctx.usage,
+        usage_limits=USAGE_LIMITS,
     )
     check = result.output
     if check.score < 9:

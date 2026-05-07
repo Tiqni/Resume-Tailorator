@@ -2,7 +2,7 @@
 
 Uses stdlib ``sqlite3`` only — no ORM or third-party DB layer.
 
-Runtime database location: ``files/resume_memory.sqlite3``
+Runtime database location: ``memory/resume_memory.sqlite3``
 Tests should supply ``:memory:`` or a temporary path.
 
 Design choices
@@ -29,6 +29,7 @@ Design choices
   ``AwareDatetime`` field accepts them without coercion issues.
 """
 
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -163,8 +164,11 @@ class SQLiteResumeMemoryRepository(ResumeMemoryRepository):
         in-process ephemeral database (used by tests).
     """
 
-    def __init__(self, db_path: str | Path = "files/resume_memory.sqlite3") -> None:
+    def __init__(self, db_path: str | Path = "memory/resume_memory.sqlite3") -> None:
         self._db_path = str(db_path)
+        # SQLite will not create parent directories; ensure they exist.
+        if self._db_path != ":memory:":
+            os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         # Enable WAL mode for slightly better concurrent read behaviour on disk.

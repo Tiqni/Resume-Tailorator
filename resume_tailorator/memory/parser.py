@@ -49,6 +49,21 @@ class ResumeParserAdapter(ABC):
         """
         raise NotImplementedError
 
+    async def aparse(self, content: str) -> CV:
+        """Asynchronously parse raw resume text and return a structured ``CV``.
+
+        Default implementation delegates to the synchronous ``parse``.
+        Subclasses that natively support async execution may override this
+        for better event-loop hygiene.
+
+        Args:
+            content: Raw markdown (or plain-text) resume content.
+
+        Returns:
+            A fully populated ``CV`` model instance.
+        """
+        return self.parse(content)
+
 
 class PydanticAIResumeParser(ResumeParserAdapter):
     """Concrete adapter that delegates to the pydantic-ai ``resume_parser_agent``.
@@ -80,8 +95,31 @@ class PydanticAIResumeParser(ResumeParserAdapter):
         from resume_tailorator.workflows.agents import resume_parser_agent  # noqa: PLC0415
 
         result = resume_parser_agent.run_sync(content)
-        output = result.output
+        return self._validate_output(result.output)
 
+    async def aparse(self, content: str) -> CV:
+        """Asynchronously parse *content* using the resume parser agent.
+
+        Safe to call when an event loop is already running.
+
+        Args:
+            content: Raw resume text (markdown or plain text).
+
+        Returns:
+            Structured ``CV`` instance produced by the agent.
+
+        Raises:
+            ValueError: If the agent returns no structured output.
+            TypeError: If the agent returns a payload that is not a ``CV``.
+        """
+        # Lazy import to avoid OpenAI client instantiation at module load time.
+        from resume_tailorator.workflows.agents import resume_parser_agent  # noqa: PLC0415
+
+        result = await resume_parser_agent.run(content)
+        return self._validate_output(result.output)
+
+    def _validate_output(self, output) -> CV:
+        """Validate agent output is a non-None ``CV``."""
         if output is None:
             raise ValueError(
                 "Resume parser agent returned no output; expected a CV instance."

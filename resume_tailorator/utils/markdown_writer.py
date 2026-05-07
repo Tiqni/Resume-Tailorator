@@ -6,21 +6,26 @@ from resume_tailorator.models.workflow import ResumeTailorResult
 from resume_tailorator.utils.pdf_converter import markdown_to_pdf
 
 
-def generate_resume(result: ResumeTailorResult, output_dir: str = "./output") -> str:
+def generate_resume(
+    result: ResumeTailorResult, output_dir: str, base_filename: str
+) -> str:
     """
     Convert tailored CV to Markdown, PDF, and DOCX formats.
 
     Args:
         result: ResumeTailorResult object containing tailored resume and company name
-        output_dir: Directory to save output files.
+        output_dir: Directory to save output files (job-specific subdirectory).
+        base_filename: Base name for all output files (without extension).
 
     Returns:
         The path to the generated Markdown file.
     """
     os.makedirs(output_dir, exist_ok=True)
-    # Use slugified filename to match CLI path expectations.
-    company_slug = result.company_name.replace(" ", "_").lower()
-    base_filename = f"tailored_resume_{company_slug}"
+    # Validate base_filename doesn't contain path separators or parent refs
+    if os.sep in base_filename or (os.altsep and os.altsep in base_filename):
+        raise ValueError(f"base_filename contains path separator: {base_filename}")
+    if ".." in base_filename:
+        raise ValueError(f"base_filename contains parent-directory reference: {base_filename}")
     md_output_path = os.path.join(output_dir, f"{base_filename}.md")
     pdf_output_path = os.path.join(output_dir, f"{base_filename}.pdf")
     docx_output_path = os.path.join(output_dir, f"{base_filename}.docx")

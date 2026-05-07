@@ -151,6 +151,71 @@ class ResumeMemoryService:
 
         return ResolvedOriginalResume(source=source, cv=cv)
 
+    async def aresolve_original_resume(
+        self,
+        *,
+        path: str | None,
+    ) -> ResolvedOriginalResume:
+        """Async variant of ``resolve_original_resume``.
+
+        Identical logic, but calls ``self._parser.aparse()`` so it is safe
+        to invoke when an event loop is already running.
+        """
+        # ---- Step 1: Determine file path and read content ---------------
+        if path is not None:
+            file_path = str(Path(path).resolve())
+        else:
+            latest = self._repo.get_latest_original_source()
+            if latest is None:
+                raise MissingOriginalResumeError(
+                    "No original resume found. Please provide a path to your "
+                    "resume with --resume-path on the first run."
+                )
+            file_path = latest.path
+
+        content = Path(file_path).read_text(encoding="utf-8")
+        content_hash = _hash_content(content)
+
+        # ---- Step 2: Upsert source record and set it active -------------
+        source = self._repo.upsert_original_source(
+            path=file_path,
+            content_hash=content_hash,
+            is_active=True,
+        )
+
+        # ---- Step 3: Try cache; reparse on miss ------------------------
+        parsed_record = self._repo.get_parsed_original_resume(source.id)
+        current_parser_version = self._parser.parser_version
+
+        if (
+            parsed_record is not None
+            and parsed_record.content_hash == content_hash
+            and parsed_record.parser_version == current_parser_version
+        ):
+            try:
+                cv = CV.model_validate_json(parsed_record.cv_json)
+            except ValidationError as exc:
+                raise ResumeMemoryError(
+                    "Failed to load stored parsed resume. Re-import the original "
+                    "resume with --resume-path."
+                ) from exc
+        else:
+            try:
+                cv = await self._parser.aparse(content)
+            except (ResumeMemoryError, TypeError, ValueError) as exc:
+                raise ResumeMemoryError(
+                    "Failed to parse the original resume. Check the resume content "
+                    "and try again."
+                ) from exc
+            self._repo.save_parsed_original_resume(
+                source_id=source.id,
+                content_hash=content_hash,
+                parser_version=current_parser_version,
+                cv_json=cv.model_dump_json(),
+            )
+
+        return ResolvedOriginalResume(source=source, cv=cv)
+
     def save_tailored_resume(
         self,
         *,
