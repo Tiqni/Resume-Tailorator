@@ -6,7 +6,7 @@ Fix non-deterministic resume parsing where the same `.docx` resume yields wildly
 
 ## Approach
 
-Two-part fix: (1) content-addressed cache for parsed CVs, and (2) richer parser agent system prompt for better first-time extraction.
+Three-part fix: (1) content-addressed cache for parsed CVs, (2) `--debug` flag for visibility into conversion quality, and (3) richer parser agent system prompt for better first-time extraction.
 
 ## Part 1 — Parsed CV Cache
 
@@ -35,6 +35,7 @@ async def run(
     job_content: str | None = None,
     model: str | None = None,
     pre_parsed_cv: CV | None = None,  # NEW
+    debug: bool = False,               # NEW
 ) -> ResumeTailorResult:
 ```
 
@@ -67,7 +68,21 @@ content_hash = hashlib.sha256(resume_content.encode()).hexdigest()
 
 Cache is best-effort only. DB failures, hash collisions, or deserialization errors fall back to normal AI parsing with a logged warning. The cache must never become a failure path.
 
-## Part 2 — Parser Agent Prompt Improvements
+## Part 2 — `--debug` Flag
+
+Add `--debug` / `-d` boolean flag to `tailor` and `re-tailor` commands. Default: `False`.
+
+Threaded through: CLI → `_tailor_impl` → `_run_workflow` → `workflow.run()`.
+
+When enabled:
+- Save the converted resume markdown to `output_dir/job_dir/resume_debug.md` (alongside the tailored output, not overwritten by other runs)
+- Print content hash (SHA-256) and cache hit/miss status to console
+- Print first 500 chars of the markdown sent to the parser agent (so user can verify conversion quality)
+- Also applies during `re-tailor` — saves the re-loaded resume markdown for debugging
+
+This replaces the current always-on save to `output_dir/resume_converted.md`, which gets overwritten on each run. With `--debug`, the dump lands in the job-specific directory and persists across runs.
+
+## Part 3 — Parser Agent Prompt Improvements
 
 The `resume_parser_agent` system prompt in `workflows/agents.py` is updated to:
 
@@ -81,8 +96,8 @@ No structural changes to the agent — just richer instructions in the `system_p
 
 | File | Change |
 |------|--------|
-| `resume_tailorator/main.py` | `_tailor_impl`: hash computation, cache lookup/save before/after workflow |
-| `resume_tailorator/workflows/__init__.py` | `ResumeTailorWorkflow.run()`: add `pre_parsed_cv` param, skip Step 0 when set |
+| `resume_tailorator/main.py` | CLI: add `--debug` flag to `tailor` and `re-tailor`; `_tailor_impl`: hash computation, cache lookup/save, debug output |
+| `resume_tailorator/workflows/__init__.py` | `ResumeTailorWorkflow.run()`: add `pre_parsed_cv` and `debug` params, skip Step 0 when cached |
 | `resume_tailorator/workflows/agents.py` | `resume_parser_agent`: richer system prompt |
 | `resume_tailorator/memory/service.py` | Add `lookup_parsed_cv` and `save_parsed_cv` methods |
 | `resume_tailorator/memory/repository.py` | Add DB query/upsert for parsed CV by content hash |
