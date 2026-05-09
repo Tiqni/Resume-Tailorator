@@ -19,6 +19,7 @@ from resume_tailorator.workflows.agents import (
     report_agent,
     resume_parser_agent,
     reviewer_agent,
+    run_agent,
     writer_agent,
     get_model,
     set_model,
@@ -89,6 +90,7 @@ class ResumeTailorWorkflow:
         *,
         pre_parsed_cv: CV | None = None,
         debug: bool = False,
+        verbose: bool = False,
     ) -> ResumeTailorResult:
         """Run the resume tailoring workflow.
 
@@ -128,8 +130,11 @@ class ResumeTailorWorkflow:
             print("🤖 Agent 0 (Parser): Parsing original resume...")
             for attempt in range(self.MAX_RETRIES):
                 try:
-                    original_cv_result = await resume_parser_agent.run(
+                    original_cv_result = await run_agent(
+                        resume_parser_agent,
                         f"Parse this resume into structured format:\n\n{resume_text}",
+                        verbose=verbose,
+                        agent_label="Parser",
                         usage=total_usage,
                         usage_limits=USAGE_LIMITS,
                     )
@@ -197,8 +202,11 @@ class ResumeTailorWorkflow:
         job_analysis: JobAnalysis | None = None
         for attempt in range(self.MAX_RETRIES):
             try:
-                job_analysis_result = await analyst_agent.run(
+                job_analysis_result = await run_agent(
+                    analyst_agent,
                     job_analysis_prompt,
+                    verbose=verbose,
+                    agent_label="Analyst",
                     usage=total_usage,
                     usage_limits=USAGE_LIMITS,
                 )
@@ -307,7 +315,14 @@ Rewrite the CV to match the Job Analysis while addressing all audit feedback.
 """
 
             try:
-                writer_result = await writer_agent.run(writer_prompt, usage=total_usage, usage_limits=USAGE_LIMITS)
+                writer_result = await run_agent(
+                    writer_agent,
+                    writer_prompt,
+                    verbose=verbose,
+                    agent_label="Writer",
+                    usage=total_usage,
+                    usage_limits=USAGE_LIMITS,
+                )
                 new_cv = writer_result.output or None
             except UnexpectedModelBehavior:
                 if _writer_qs.last_output is not None:
@@ -347,8 +362,13 @@ Assess quality and suggest improvements if needed.
 """
 
                 try:
-                    review_result = await reviewer_agent.run(
-                        review_prompt, usage=total_usage, usage_limits=USAGE_LIMITS
+                    review_result = await run_agent(
+                        reviewer_agent,
+                        review_prompt,
+                        verbose=verbose,
+                        agent_label="Reviewer",
+                        usage=total_usage,
+                        usage_limits=USAGE_LIMITS,
                     )
                     review = review_result.output
 
@@ -391,8 +411,13 @@ CRITICAL RULES:
 Focus on better highlighting relevant experience and incorporating job keywords naturally.
 """
 
-                        refined_result = await writer_agent.run(
-                            improvement_prompt, usage=total_usage, usage_limits=USAGE_LIMITS
+                        refined_result = await run_agent(
+                            writer_agent,
+                            improvement_prompt,
+                            verbose=verbose,
+                            agent_label="Writer (refine)",
+                            usage=total_usage,
+                            usage_limits=USAGE_LIMITS,
                         )
                         if refined_result.output:
                             new_cv = refined_result.output
@@ -438,7 +463,14 @@ Compare the two structured CVs carefully. Ensure that:
 5. The new CV properly targets the job requirements using only original information
 """
             try:
-                audit_result = await auditor_agent.run(audit_prompt, usage=total_usage, usage_limits=USAGE_LIMITS)
+                audit_result = await run_agent(
+                    auditor_agent,
+                    audit_prompt,
+                    verbose=verbose,
+                    agent_label="Auditor",
+                    usage=total_usage,
+                    usage_limits=USAGE_LIMITS,
+                )
                 audit = audit_result.output
             except UnexpectedModelBehavior:
                 if _auditor_qs.last_output is not None:
@@ -531,7 +563,14 @@ Review Result: {review_json}
 Job Analysis: {job_data_json}
 """
 
-            report_result = await report_agent.run(report_prompt, usage=total_usage, usage_limits=USAGE_LIMITS)
+            report_result = await run_agent(
+                report_agent,
+                report_prompt,
+                verbose=verbose,
+                agent_label="Report",
+                usage=total_usage,
+                usage_limits=USAGE_LIMITS,
+            )
             narrative = report_result.output
 
             final_report = FinalReport(

@@ -31,7 +31,7 @@ from resume_tailorator.utils.resume_converter import (
     UnsupportedFormatError,
 )
 from resume_tailorator.workflows import ResumeTailorWorkflow
-from resume_tailorator.workflows.agents import job_scraper_agent
+from resume_tailorator.workflows.agents import job_scraper_agent, run_agent
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -169,6 +169,7 @@ async def _run_workflow(
     output_dir: str,
     model: str | None,
     recommendations: str = "",
+    verbose: bool = False,
     output_pattern: str = "{company_name}-{job_title}",
     resume_name_pattern: str = "{company_name}-{full_name}",
     pre_parsed_cv: CV | None = None,
@@ -188,6 +189,7 @@ async def _run_workflow(
         model=model,
         pre_parsed_cv=pre_parsed_cv,
         debug=debug,
+        verbose=verbose,
     )
 
     resume_path = None
@@ -269,6 +271,7 @@ async def _tailor_impl(
     resume_path: str,
     output_dir: str,
     model: str | None,
+    verbose: bool = False,
     output_pattern: str = "{company_name}-{job_title}",
     resume_name_pattern: str = "{company_name}-{full_name}",
     debug: bool = False,
@@ -346,8 +349,11 @@ async def _tailor_impl(
 
     logger.info("scraping_job_posting", extra={"url": job_url})
     try:
-        scrape_result = await job_scraper_agent.run(
+        scrape_result = await run_agent(
+            job_scraper_agent,
             f"Extract and convert to Markdown this job posting: {job_url}",
+            verbose=verbose,
+            agent_label="Scraper",
         )
         if isinstance(scrape_result.output, ScrapedJobPosting):
             job_posting_markdown = scrape_result.output.markdown
@@ -380,6 +386,7 @@ async def _tailor_impl(
         job_posting_markdown,
         output_dir,
         model,
+        verbose=verbose,
         output_pattern=output_pattern,
         resume_name_pattern=resume_name_pattern,
         pre_parsed_cv=pre_parsed_cv,
@@ -435,6 +442,9 @@ def tailor(
     resume_path: str = typer.Argument(..., help="Path to resume (Markdown, DOCX, PDF)"),
     output_dir: str = typer.Option("./output", help="Directory for output files"),
     model: str | None = typer.Option(None, help="AI model to use (e.g., openai:gpt-4o-mini)"),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Stream agent thinking and prompts in real-time"
+    ),
     output_pattern: str = typer.Option(
         "{company_name}-{job_title}",
         help="Template for the job-specific subdirectory name",
@@ -454,6 +464,7 @@ def tailor(
             resume_path,
             output_dir,
             model,
+            verbose=verbose,
             output_pattern=output_pattern,
             resume_name_pattern=resume_name_pattern,
             debug=debug,
@@ -467,6 +478,7 @@ async def _re_tailor_impl(
     resume_path: str | None,
     output_dir: str,
     model: str | None,
+    verbose: bool = False,
     output_pattern: str = "{company_name}-{job_title}",
     resume_name_pattern: str = "{company_name}-{full_name}",
     debug: bool = False,
@@ -558,6 +570,7 @@ async def _re_tailor_impl(
         output_dir,
         model,
         recommendations=recommendations,
+        verbose=verbose,
         output_pattern=output_pattern,
         resume_name_pattern=resume_name_pattern,
         pre_parsed_cv=pre_parsed_cv,
@@ -603,6 +616,9 @@ def re_tailor(
     resume_path: str | None = typer.Option(None, help="Path to resume (uses stored path if omitted)"),
     output_dir: str = typer.Option("./output", help="Directory for output files"),
     model: str | None = typer.Option(None, help="AI model to use"),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Stream agent thinking and prompts in real-time"
+    ),
     output_pattern: str = typer.Option(
         "{company_name}-{job_title}",
         help="Template for the job-specific subdirectory name",
@@ -623,6 +639,7 @@ def re_tailor(
             resume_path,
             output_dir,
             model,
+            verbose=verbose,
             output_pattern=output_pattern,
             resume_name_pattern=resume_name_pattern,
             debug=debug,
