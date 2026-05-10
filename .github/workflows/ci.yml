@@ -32,7 +32,7 @@ jobs:
       - name: Coverage report
         run: |
           uv run python -c "
-          import json
+          import json, os
           data = json.load(open('coverage.json'))
           totals = data['totals']
           pct = totals['percent_covered']
@@ -48,6 +48,6 @@ jobs:
               name = path.replace('resume_tailorator/', '')
               cp = fp['percent_covered']
               lines.append(f'| {name} | {fp[\"num_statements\"]} | {fp[\"missing_lines\"]} | {cp:.0f}% |')
-          with open('$GITHUB_STEP_SUMMARY', 'a') as f:
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
               f.write('\n'.join(lines))
           "
