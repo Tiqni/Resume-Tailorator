@@ -11,10 +11,23 @@ uv run resume-tailor re-tailor <JOB_ID> <RECOMMENDATIONS>    # re-run with feedb
 
 ## Development Workflow
 
-**Always create a feature branch before building a spec.** Never commit design specs or implementation plans directly to `main`. Create a branch first, then write the spec, get approval, and implement on that branch.
+**Always use isolated git worktrees.** Never commit or modify directly on `main`. Worktrees allow multiple agents to work on the same repo concurrently without interference.
+```bash
+# Worktrees are created automatically via EnterWorktree native tool.
+# .worktrees/ and .claude/worktrees/ are gitignored — use them for isolation.
+# The main branch stays pristine as the source of truth.
+```
+
+## Tool Invocation
+
+**Always use `uv` for any Python invocation.** Never use bare `python`, `python3`, or `pip` directly.
 
 ```bash
-git checkout -b <feature-name>
+uv run pytest ...           # tests
+uv run python -m ...        # modules
+uv run resume-tailor ...    # CLI
+uv sync                     # install deps
+uv add <pkg>                # add dependency
 ```
 
 ## CLI Commands
