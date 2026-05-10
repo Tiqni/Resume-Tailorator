@@ -1,7 +1,8 @@
-## Unreleased
+## v0.2.0 (2026-05-10)
 
 ### Feat
 
+- release automation with commitizen and GitHub Actions (#21)
 - add --verbose flag for agent streaming output (#17)
 - job-specific output directories with configurable naming templates (#12)
 - **cli**: rewrite CLI with Typer (tailor + re-tailor commands) (#9)
@@ -21,7 +22,12 @@
 
 ### Fix
 
-- resolve 58 test failures across 4 root causes
+- add GH_TOKEN for gh CLI and include uv.lock in release commit
+- replace cz changelog with awk extraction to avoid missing tag errors
+- force-push release branch and update existing PR if one exists
+- use PR-based release flow instead of direct push to main
+- use version_provider uv so commitizen reads version from pyproject.toml (#23)
+- release workflow and post-merge improvements (#22)
 - deterministic resume parsing + improved DOCX heading conversion (#18)
 - **cli**: correct return tuple structure to match spec
 - replace hardcoded job URL with placeholder for improved flexibility
