@@ -6,9 +6,10 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
-  release:
+  bump:
     runs-on: ubuntu-latest
     if: "!startsWith(github.event.head_commit.message, 'chore(release):')"
     env:
@@ -28,15 +29,62 @@ jobs:
         run: uv sync --dev
 
       - name: Bump version and update changelog
-        uses: commitizen-tools/commitizen-action@0.27.1
+        run: |
+          uv run cz bump --yes --files-only
+          NEW_VERSION=$(uv run cz version --project)
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "BRANCH=release/v$NEW_VERSION" >> $GITHUB_ENV
+
+      - name: Generate changelog body
+        run: uv run cz changelog --dry-run "$NEW_VERSION" > body.md
+
+      - name: Push to release branch and create PR
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add pyproject.toml CHANGELOG.md
+          git commit -m "chore(release): bump version $NEW_VERSION"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore(release): bump version $NEW_VERSION" \
+            --body "$(cat body.md)" \
+            --base main \
+            --head "$BRANCH"
+
+  tag-and-release:
+    runs-on: ubuntu-latest
+    if: "startsWith(github.event.head_commit.message, 'chore(release):')"
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          changelog_increment_filename: body.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Get version and create tag
+        run: |
+          VERSION=$(uv run cz version --project)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
+
+      - name: Generate changelog for release
+        run: uv run cz changelog --dry-run "$VERSION" > body.md
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          tag: v${{ env.REVISION }}
+          tag: v${{ env.VERSION }}
           bodyFile: "body.md"
           skipIfReleaseExists: true
         env:
