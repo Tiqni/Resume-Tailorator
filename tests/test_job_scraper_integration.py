@@ -41,10 +41,10 @@ from resume_tailorator.models.agents.output import (
 from resume_tailorator.models.workflow import ResumeTailorResult
 
 # Pre-patch markdown_pdf to avoid import errors while preserving real file creation
-if 'markdown_pdf' not in sys.modules:
-    sys.modules['markdown_pdf'] = MagicMock()
-    sys.modules['markdown_pdf'].MarkdownPdf = MagicMock()
-    sys.modules['markdown_pdf'].Section = MagicMock()
+if "markdown_pdf" not in sys.modules:
+    sys.modules["markdown_pdf"] = MagicMock()
+    sys.modules["markdown_pdf"].MarkdownPdf = MagicMock()
+    sys.modules["markdown_pdf"].Section = MagicMock()
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,9 @@ We are looking for a Senior Software Engineer to join our team.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_cli_with_job_url_triggers_scraper(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper, subtests
 ):
@@ -210,14 +212,15 @@ def test_cli_with_job_url_triggers_scraper(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
             (tmp_path / item.name).write_text(item.read_text())
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -252,7 +255,9 @@ def test_cli_with_job_url_triggers_scraper(
         assert call_kwargs["job_content_file_path"].endswith("job_posting.md")
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_no_job_url_skips_scraper(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper
 ):
@@ -260,7 +265,7 @@ def test_no_job_url_skips_scraper(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
@@ -268,15 +273,16 @@ def test_no_job_url_skips_scraper(
 
     # Counter to verify scraper not called
     scraper_called = [False]
-    
+
     async def mock_run_counter(*args, **kwargs):
         scraper_called[0] = True
         raise AssertionError("Scraper should not be called!")
-    
+
     mock_scraper.run = mock_run_counter
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -292,7 +298,9 @@ def test_no_job_url_skips_scraper(
     mock_workflow.run.assert_called_once()
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_workflow_completes_with_scraped_job(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper
 ):
@@ -300,15 +308,17 @@ def test_workflow_completes_with_scraped_job(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
             (tmp_path / item.name).write_text(item.read_text())
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
-    ), patch("resume_tailorator.main.generate_resume") as mock_generate:
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
+        patch("resume_tailorator.main.generate_resume") as mock_generate,
+    ):
         mock_wf_class.return_value = mock_workflow
 
         import resume_tailorator.main as main_module
@@ -327,7 +337,9 @@ def test_workflow_completes_with_scraped_job(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_scraper_fallback_to_markdown_file_on_error(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, capsys
 ):
@@ -335,7 +347,7 @@ def test_scraper_fallback_to_markdown_file_on_error(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
@@ -348,8 +360,9 @@ def test_scraper_fallback_to_markdown_file_on_error(
     mock_scraper = MagicMock()
     mock_scraper.run = mock_run_error
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -362,7 +375,9 @@ def test_scraper_fallback_to_markdown_file_on_error(
     assert "Failed to scrape" in captured.out or "error" in captured.out.lower()
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_scraper_with_javascript_heavy_site(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow
 ):
@@ -370,7 +385,7 @@ def test_scraper_with_javascript_heavy_site(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
@@ -394,8 +409,9 @@ def test_scraper_with_javascript_heavy_site(
     mock_scraper_js = MagicMock()
     mock_scraper_js.run = mock_run_js_heavy
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper_js
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper_js),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -418,7 +434,9 @@ def test_scraper_with_javascript_heavy_site(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_job_content_file_path_consistency(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper, subtests
 ):
@@ -426,7 +444,7 @@ def test_job_content_file_path_consistency(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
@@ -434,8 +452,9 @@ def test_job_content_file_path_consistency(
 
     expected_path = tmp_path / "files" / "job_posting.md"
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -460,7 +479,9 @@ def test_job_content_file_path_consistency(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_invalid_job_url_handled_gracefully():
     """Test that invalid URLs are rejected early."""
     from resume_tailorator.utils.validate_inputs import validate_job_url
@@ -480,7 +501,9 @@ def test_invalid_job_url_handled_gracefully():
     assert not validate_job_url("")
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_scraper_timeout_handled_gracefully(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, capsys
 ):
@@ -488,7 +511,7 @@ def test_scraper_timeout_handled_gracefully(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
@@ -501,8 +524,9 @@ def test_scraper_timeout_handled_gracefully(
     mock_scraper = MagicMock()
     mock_scraper.run = mock_run_timeout
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -520,7 +544,9 @@ def test_scraper_timeout_handled_gracefully(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_scraper_result_format_validation(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper
 ):
@@ -528,14 +554,15 @@ def test_scraper_result_format_validation(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
             (tmp_path / item.name).write_text(item.read_text())
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -550,8 +577,8 @@ def test_scraper_result_format_validation(
     assert content.strip()  # Not empty
     assert len(content) > 50  # Substantial
     # Should have markdown-like structure
-    assert "#" in content or "-" in content or any(
-        c in content for c in ["*", "**", "_"]
+    assert (
+        "#" in content or "-" in content or any(c in content for c in ["*", "**", "_"])
     )
 
 
@@ -560,7 +587,9 @@ def test_scraper_result_format_validation(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_cli_job_url_priority_over_file(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper, subtests
 ):
@@ -568,14 +597,15 @@ def test_cli_job_url_priority_over_file(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
             (tmp_path / item.name).write_text(item.read_text())
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -592,7 +622,9 @@ def test_cli_job_url_priority_over_file(
         assert job_file.exists()
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_job_posting_file_exists_when_scraper_succeeds(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper
 ):
@@ -600,20 +632,23 @@ def test_job_posting_file_exists_when_scraper_succeeds(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
             (tmp_path / item.name).write_text(item.read_text())
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
         import resume_tailorator.main as main_module
 
-        asyncio.run(main_module.main(job_url="https://example.com/job/create-file-test"))
+        asyncio.run(
+            main_module.main(job_url="https://example.com/job/create-file-test")
+        )
 
     # Verify file was created
     job_file = tmp_path / "files" / "job_posting.md"
@@ -621,7 +656,9 @@ def test_job_posting_file_exists_when_scraper_succeeds(
     assert len(job_file.read_text()) > 0
 
 
-@pytest.mark.skip(reason='Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20')
+@pytest.mark.skip(
+    reason="Pre-Typer API: needs rewrite for _tailor_impl() — see issue #20"
+)
 def test_workflow_receives_valid_job_posting_content(
     tmp_path, monkeypatch, tmp_files_dir, mock_workflow, mock_scraper, subtests
 ):
@@ -629,14 +666,15 @@ def test_workflow_receives_valid_job_posting_content(
     import asyncio
 
     monkeypatch.chdir(tmp_path)
-    
+
     # Setup test files
     for item in tmp_files_dir.iterdir():
         if item.is_file():
             (tmp_path / item.name).write_text(item.read_text())
 
-    with patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class, patch(
-        "main.job_scraper_agent", mock_scraper
+    with (
+        patch("resume_tailorator.main.ResumeTailorWorkflow") as mock_wf_class,
+        patch("main.job_scraper_agent", mock_scraper),
     ):
         mock_wf_class.return_value = mock_workflow
 
@@ -652,5 +690,3 @@ def test_workflow_receives_valid_job_posting_content(
         assert "job_content_file_path" in call_kwargs
         path = Path(call_kwargs["job_content_file_path"])
         assert path.name == "job_posting.md"
-
-

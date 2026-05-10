@@ -21,6 +21,7 @@ from resume_tailorator.tools.job_scraper_helpers import (
 )
 
 from importlib.util import find_spec
+
 HAS_PLAYWRIGHT = find_spec("playwright") is not None
 
 # Ensure model requests are blocked (test mode only)
@@ -28,7 +29,10 @@ models.ALLOW_MODEL_REQUESTS = False
 
 # Import agent and tools only if playwright is available
 if HAS_PLAYWRIGHT:
-    from resume_tailorator.workflows.agents import job_scraper_agent, validate_extraction
+    from resume_tailorator.workflows.agents import (
+        job_scraper_agent,
+        validate_extraction,
+    )
 else:
     # Define dummy validate_extraction for non-agent tests
     def validate_extraction(raw_html: str, extracted_markdown: str) -> dict:
@@ -152,10 +156,12 @@ class TestJobScraperAgent:
                     markdown=REALISTIC_EXTRACTED_MARKDOWN,
                     source_text="raw html content",
                     extraction_strategy="html2text",
-                )
+                ),
             )
         ):
-            result = job_scraper_agent.run_sync("Scrape this job: https://example.com/job/123")
+            result = job_scraper_agent.run_sync(
+                "Scrape this job: https://example.com/job/123"
+            )
 
             assert isinstance(result.output, ScrapedJobPosting)
             assert result.output.url == "https://example.com/job/123"
@@ -173,7 +179,7 @@ class TestJobScraperAgent:
                     markdown=REALISTIC_EXTRACTED_MARKDOWN,
                     source_text="<html>...</html>",
                     extraction_strategy="markitdown",
-                )
+                ),
             )
         ):
             result = job_scraper_agent.run_sync("Scrape: https://example.com/job/456")
@@ -192,7 +198,7 @@ class TestJobScraperAgent:
                     markdown="Job content here" * 20,
                     source_text="<html>content</html>",
                     extraction_strategy="html2text",
-                )
+                ),
             )
         ):
             result = job_scraper_agent.run_sync(f"Scrape: {test_url}")
@@ -212,12 +218,10 @@ class TestJobScraperAgent:
                         markdown=REALISTIC_EXTRACTED_MARKDOWN,
                         source_text="<html>...</html>",
                         extraction_strategy=strategy,
-                    )
+                    ),
                 )
             ):
-                result = job_scraper_agent.run_sync(
-                    "Scrape: https://example.com/job"
-                )
+                result = job_scraper_agent.run_sync("Scrape: https://example.com/job")
 
                 assert result.output.extraction_strategy == strategy
 
@@ -446,7 +450,7 @@ class TestExtractionQualityScoring:
         """Test that quality score considers total length including whitespace."""
         # Content with significant whitespace
         markdown_with_spaces = "word " * 200  # 1000 chars with spaces
-        markdown_no_spaces = "word" * 200    # 800 chars no spaces
+        markdown_no_spaces = "word" * 200  # 800 chars no spaces
 
         result_spaces = validate_extraction(
             raw_html="<html>html</html>",
@@ -482,7 +486,7 @@ class TestHelperFunctionsIntegration:
         """Test that HTML parsing integrates properly."""
         # Placeholder detection should work
         assert detect_placeholder_content("<script>error</script>" + " x" * 50) is True
-        
+
         # Cleaning should work
         dirty_markdown = "line1  \n\n\n\nline2\n"
         clean_markdown = clean_job_posting_markdown(dirty_markdown)
@@ -594,12 +598,15 @@ class TestPlaceholderDetectionInScraping:
 
     def test_real_posting_with_javascript_skills_not_placeholder(self):
         """Test that real job posting mentioning JavaScript is not flagged."""
-        content = """
+        content = (
+            """
         Senior Software Engineer
         Requirements: JavaScript, TypeScript, React
         We seek an expert in JavaScript frameworks.
         Must have 5+ years working with JavaScript.
-        """ + " x" * 50
+        """
+            + " x" * 50
+        )
         assert detect_placeholder_content(content) is False
 
     def test_minimum_valid_content_length(self):

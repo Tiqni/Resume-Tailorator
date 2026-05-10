@@ -200,7 +200,6 @@ class TestAutoDetectResume:
 # ---------------------------------------------------------------------------
 
 
-
 class TestIsSectionHeader:
     def test_all_caps_is_header(self):
         assert _is_section_header("SKILLS") is True
@@ -233,7 +232,10 @@ class TestIsSectionHeader:
         assert _is_section_header("2020-2024") is False
 
     def test_contact_line_not_header(self):
-        assert _is_section_header("+31 (6) 45955236 | me@emadmokhtar.com | Rotterdam") is False
+        assert (
+            _is_section_header("+31 (6) 45955236 | me@emadmokhtar.com | Rotterdam")
+            is False
+        )
 
     def test_single_char_not_header(self):
         assert _is_section_header("A") is False

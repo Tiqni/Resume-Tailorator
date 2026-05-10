@@ -2,7 +2,11 @@
 
 import pytest
 
-from resume_tailorator.models.agents.output import AuditResult, JobAnalysis, ReviewResult
+from resume_tailorator.models.agents.output import (
+    AuditResult,
+    JobAnalysis,
+    ReviewResult,
+)
 from resume_tailorator.workflows import ResumeTailorWorkflow
 
 
@@ -57,11 +61,21 @@ async def test_workflow_uses_provided_original_cv_without_reparsing(
             )
         )
 
-    monkeypatch.setattr("resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.analyst_agent.run", run_analyst)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.writer_agent.run", run_writer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.auditor_agent.run", run_auditor)
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.analyst_agent.run", run_analyst
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.writer_agent.run", run_writer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.auditor_agent.run", run_auditor
+    )
 
     result = await ResumeTailorWorkflow().run(sample_cv, "files/job_posting.md")
 
@@ -87,9 +101,12 @@ async def test_analyst_failure_after_retries_raises_runtime_error(
     async def always_fail(*args, **kwargs):
         raise ValueError("simulated agent unavailable")
 
-    monkeypatch.setattr("resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.analyst_agent.run", always_fail)
-
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.analyst_agent.run", always_fail
+    )
 
     with pytest.raises(SystemExit, match="job analysis"):
         await ResumeTailorWorkflow().run(sample_cv, "files/job_posting.md")

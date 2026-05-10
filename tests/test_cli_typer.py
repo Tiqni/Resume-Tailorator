@@ -35,6 +35,7 @@ def _make_cv(full_name: str = "Jane Doe") -> CV:
 def _make_result(cv: CV | None = None, passed: bool = True) -> ResumeTailorResult:
     cv = cv or _make_cv()
     from resume_tailorator.models.agents.output import CVDiff, FinalReport, GapAnalysis
+
     final_report = FinalReport(
         company_name="Acme Corp",
         job_title="Software Engineer",
@@ -46,7 +47,7 @@ def _make_result(cv: CV | None = None, passed: bool = True) -> ResumeTailorResul
             covered_keywords=["Python"],
             missing_keywords=["Rust"],
         ),
-        suggestions_to_strengthen=[ "Add Rust experience"],
+        suggestions_to_strengthen=["Add Rust experience"],
         audit_summary="Looks good.",
         recommendation_rationale="Strong alignment with role requirements.",
         passed=passed,
@@ -67,7 +68,9 @@ def _make_result(cv: CV | None = None, passed: bool = True) -> ResumeTailorResul
     )
 
 
-def _make_scraped_job(markdown: str = "# Job Posting\nPython engineer") -> ScrapedJobPosting:
+def _make_scraped_job(
+    markdown: str = "# Job Posting\nPython engineer",
+) -> ScrapedJobPosting:
     return ScrapedJobPosting(
         markdown=markdown,
         url="https://example.com/job/123",
@@ -91,7 +94,9 @@ def test_tailor_command_success(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(return_value=str(output_dir / "tailored_resume_acme_corp.md"))
+    mock_generate_resume = MagicMock(
+        return_value=str(output_dir / "tailored_resume_acme_corp.md")
+    )
 
     scraped_job = _make_scraped_job()
 
@@ -100,7 +105,9 @@ def test_tailor_command_success(tmp_path, monkeypatch) -> None:
             "resume_tailorator.main.job_scraper_agent.run",
             AsyncMock(return_value=MagicMock(output=scraped_job)),
         ),
-        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch(
+            "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
+        ),
         patch("resume_tailorator.main.generate_resume", mock_generate_resume),
         patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("resume_tailorator.main.PydanticAIResumeParser") as _,
@@ -227,7 +234,9 @@ def test_tailor_command_failed_audit_exits_zero(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(return_value=str(output_dir / "tailored_resume_acme_corp.md"))
+    mock_generate_resume = MagicMock(
+        return_value=str(output_dir / "tailored_resume_acme_corp.md")
+    )
 
     scraped_job = _make_scraped_job()
 
@@ -236,7 +245,9 @@ def test_tailor_command_failed_audit_exits_zero(tmp_path, monkeypatch) -> None:
             "resume_tailorator.main.job_scraper_agent.run",
             AsyncMock(return_value=MagicMock(output=scraped_job)),
         ),
-        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch(
+            "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
+        ),
         patch("resume_tailorator.main.generate_resume", mock_generate_resume),
         patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("resume_tailorator.main.PydanticAIResumeParser") as _,
@@ -326,7 +337,9 @@ def test_tailor_command_docx_conversion(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(return_value=str(output_dir / "tailored_resume_acme_corp.md"))
+    mock_generate_resume = MagicMock(
+        return_value=str(output_dir / "tailored_resume_acme_corp.md")
+    )
 
     scraped_job = _make_scraped_job()
 
@@ -335,7 +348,9 @@ def test_tailor_command_docx_conversion(tmp_path, monkeypatch) -> None:
             "resume_tailorator.main.job_scraper_agent.run",
             AsyncMock(return_value=MagicMock(output=scraped_job)),
         ),
-        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch(
+            "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
+        ),
         patch("resume_tailorator.main.generate_resume", mock_generate_resume),
         patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("resume_tailorator.main.PydanticAIResumeParser") as _,
@@ -386,13 +401,17 @@ def test_re_tailor_success(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(return_value=str(output_dir / "tailored_resume_acme_corp.md"))
+    mock_generate_resume = MagicMock(
+        return_value=str(output_dir / "tailored_resume_acme_corp.md")
+    )
 
     resume_file = tmp_path / "resume.md"
     resume_file.write_text("# Jane Smith\n\nPython developer", encoding="utf-8")
 
     with (
-        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch(
+            "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
+        ),
         patch("resume_tailorator.main.generate_resume", mock_generate_resume),
         patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("resume_tailorator.main.PydanticAIResumeParser") as _,
@@ -526,10 +545,14 @@ def test_re_tailor_with_resume_path(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(return_value=str(output_dir / "tailored_resume_acme_corp.md"))
+    mock_generate_resume = MagicMock(
+        return_value=str(output_dir / "tailored_resume_acme_corp.md")
+    )
 
     with (
-        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch(
+            "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
+        ),
         patch("resume_tailorator.main.generate_resume", mock_generate_resume),
         patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("resume_tailorator.main.PydanticAIResumeParser") as _,
@@ -675,7 +698,9 @@ def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
             "resume_tailorator.main.job_scraper_agent.run",
             AsyncMock(return_value=MagicMock(output=scraped_job)),
         ),
-        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch(
+            "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
+        ),
         patch("resume_tailorator.main.generate_resume", mock_generate_resume),
         patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("resume_tailorator.main.PydanticAIResumeParser") as _,
@@ -743,7 +768,9 @@ def test_re_tailor_custom_patterns(tmp_path, monkeypatch) -> None:
     resume_file.write_text("# Jane Smith\n\nPython developer", encoding="utf-8")
 
     with (
-        patch("resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow),
+        patch(
+            "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
+        ),
         patch("resume_tailorator.main.generate_resume", mock_generate_resume),
         patch("resume_tailorator.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("resume_tailorator.main.PydanticAIResumeParser") as _,
