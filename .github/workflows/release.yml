@@ -25,7 +25,7 @@ jobs:
         run: uv sync --dev
 
       - name: Bump version and update changelog
-        uses: commitizen-tools/commitizen-action@4b39b6b0db212ed0cf1ba9aab3c1e1c37be47be2 # v4.4.0
+        uses: commitizen-tools/commitizen-action@v4.4.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           push: true
