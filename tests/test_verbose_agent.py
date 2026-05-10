@@ -52,7 +52,7 @@ class TestRunAgentVerbose:
     """When verbose=True, run_agent uses run_stream_events and prints to console."""
 
     @pytest.mark.anyio
-    async def test_prints_steam_header(self):
+    async def test_prints_stream_header(self):
         agent = MagicMock(spec=Agent)
         agent.run = AsyncMock()
         agent.run_stream_events = MagicMock()

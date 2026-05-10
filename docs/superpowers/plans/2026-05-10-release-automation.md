@@ -41,7 +41,7 @@ Expected: Output shows `name: cz_conventional_commits`, `version: 0.1.0`, etc.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add pyproject.toml pyproject.toml uv.lock
+git add pyproject.toml uv.lock
 git commit -m "chore: add commitizen config and dev dependency"
 ```
 
@@ -139,7 +139,7 @@ jobs:
         run: uv sync --dev
 
       - name: Bump version and update changelog
-        uses: commitizen-tools/commitizen-action@master
+        uses: commitizen-tools/commitizen-action@4b39b6b0db212ed0cf1ba9aab3c1e1c37be47be2 # v4.4.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           push: true

@@ -47,7 +47,7 @@ No version or changelog concerns in this workflow.
 **Jobs:**
 1. Checkout with `fetch-depth: 0` (full history for commitizen analysis)
 2. Setup uv + Python 3.13
-3. Run `commitizen-tools/commitizen-action@master` with:
+3. Run `commitizen-tools/commitizen-action@4b39b6b0db212ed0cf1ba9aab3c1e1c37be47be2 # v4.4.0` with:
    - `github_token: ${{ secrets.GITHUB_TOKEN }}`
    - `push: true` (pushes bumped pyproject.toml + updated CHANGELOG.md)
 4. Action auto-creates git tag and GitHub Release from changelog entry
