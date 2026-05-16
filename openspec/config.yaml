@@ -1,0 +1,57 @@
+strict_tdd: true
+context: |
+  Resume-Tailorator is a Python project.
+  Detected markers: pyproject.toml, Makefile, GitHub Actions.
+  Additional evidence: Test-like files detected (27); examples: .pi/agents/sdd-spec.md, docs/superpowers/specs/2026-05-04-cli-typer-design.md, docs/superpowers/specs/2026-05-06-job-specific-output-naming-design.md, docs/superpowers/specs/2026-05-08-resume-parsing-determinism-design.md, docs/superpowers/specs/2026-05-10-release-automation-design.md.
+  Primary test command: make test.
+  Unit tests: pytest (pytest); pytest via Makefile (make test).
+  Integration tests: none.
+  E2E tests: none.
+rules:
+  proposal:
+    require_problem_statement: true
+  spec:
+    require_acceptance_criteria: true
+  design:
+    require_tradeoffs: true
+  tasks:
+    protect_review_workload: true
+  apply:
+    test_command: "make test"
+  verify:
+    test_command: "make test"
+testing:
+  detected: "2026-05-16"
+  runner:
+    command: "make test"
+    framework: "pytest via Makefile"
+  layers:
+    unit: "pytest, pytest via Makefile"
+    integration: ""
+    e2e: ""
+  commands:
+    unit:
+      - scope: "."
+        command: "pytest"
+        framework: "pytest"
+      - scope: "."
+        command: "make test"
+        framework: "pytest via Makefile"
+    integration:
+      []
+    e2e:
+      []
+  coverage:
+    command: ""
+    commands:
+      []
+quality:
+  lint: ""
+  lint_commands:
+    []
+  typecheck: ""
+  typecheck_commands:
+    []
+  format: ""
+  format_commands:
+    []
