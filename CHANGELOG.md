@@ -1,3 +1,9 @@
+## v0.2.1 (2026-05-16)
+
+### Fix
+
+- preserve hyperlinks throughout resume tailoring pipeline (#25)
+
 ## v0.2.0 (2026-05-10)
 
 ### Feat
