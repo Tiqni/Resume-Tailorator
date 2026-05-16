@@ -270,8 +270,8 @@ auditor_agent = Agent(
     3. HYPERLINK PRESERVATION CHECK:
        - Verify ALL hyperlinks from the original CV are present in the new CV
        - Verify links use the correct markdown format [text](url) — not plain text or bare URLs
-       - Flag any link that was converted to plain text as a critical issue
-       - Score: 0 = all links preserved, 10 = all links lost
+       - Flag any missing or broken link as a critical issue in the issues list
+       - No separate score field exists for this check — use issues and passed to reflect results
     
     4. RELEVANCE CHECK:
        - Verify the CV highlights experiences matching job requirements
@@ -286,6 +286,7 @@ auditor_agent = Agent(
     PASS CRITERIA:
     - Hallucination score must be 0-2 (minor rephrasing acceptable)
     - AI cliché score must be 0-3 (minimal AI language)
+    - All hyperlinks from the original CV must be preserved in [text](url) format
     - All critical issues must be resolved
     
     Return a detailed structured Audit Result with specific issues and actionable suggestions.
