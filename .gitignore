@@ -200,3 +200,6 @@ output/
 /coverage.json
 pytest-coverage.txt
 pytest.xml
+# Local Pi runtime state
+.atl/
+.pi-lens/
