@@ -1,3 +1,9 @@
+## v0.2.3 (2026-05-17)
+
+### Fix
+
+- **ci**: handle NoneIncrement exit in cz bump with --no-raise 21 (#31)
+
 ## v0.2.2 (2026-05-16)
 
 ### Fix
