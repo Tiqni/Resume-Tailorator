@@ -242,7 +242,7 @@ async def test_advisory_gate_passes_through_above_threshold(monkeypatch):
 
 @pytest.mark.anyio
 async def test_advisory_gate_retries_below_threshold(monkeypatch):
-    """Score < threshold: raises ModelRetry once."""
+    """Score < threshold: raises ModelRetry once and emits agent_retry."""
     from pydantic_ai import ModelRetry
 
     agents_mod.set_quality_gate(enabled=True, threshold=6)
@@ -254,9 +254,13 @@ async def test_advisory_gate_retries_below_threshold(monkeypatch):
 
     monkeypatch.setattr(agents_mod, "run_agent", fake_gate)
 
+    rec = RecordingReporter()
     ctx = type("Ctx", (), {"usage": None})()
-    with pytest.raises(ModelRetry):
-        await agents_mod._validate_writer(ctx, _cv_for_gate())
+    with use_reporter(rec):
+        with pytest.raises(ModelRetry):
+            await agents_mod._validate_writer(ctx, _cv_for_gate())
+    assert ("quality_score", "Writer", 3) in rec.events
+    assert ("agent_retry", "Writer") in rec.events
     agents_mod.reset_quality_gate()
 
 

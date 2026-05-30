@@ -228,9 +228,10 @@ Scoring criteria by role:
   - CV Writer: no hallucinations, ATS keywords incorporated naturally, human tone, no clichés
   - Auditor: thorough hallucination check, specific cliché identification, actionable feedback
   - Cover Letter Writer: authentic human voice, no AI clichés, specific to the role, concise
-A score of 9 or 10 means ready to proceed.
-A score below 9 means the output must be improved before the pipeline continues.
-Always provide a reasoning and list specific improvements when score < 9.""",
+Score the output honestly from 0 to 10 based on the criteria above.
+A score of 9 or 10 means excellent; 6 to 8 means acceptable; below 6 means the
+output is broken and must be regenerated.
+Always provide reasoning, and list specific improvements whenever the score is below 9.""",
     output_type=QualityCheckResult,
     retries=2,
 )

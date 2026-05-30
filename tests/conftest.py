@@ -95,10 +95,12 @@ def sample_cv(tmp_path: Path):
 
 
 @pytest.fixture(autouse=True)
-def _reset_agent_models():
-    """Keep per-agent model tiers at their default between tests."""
-    from resume_tailorator.workflows.agents import reset_agent_models
+def _reset_agent_runtime_state():
+    """Keep per-agent model tiers and the quality-gate config at defaults between tests."""
+    from resume_tailorator.workflows.agents import reset_agent_models, reset_quality_gate
 
     reset_agent_models()
+    reset_quality_gate()
     yield
     reset_agent_models()
+    reset_quality_gate()
