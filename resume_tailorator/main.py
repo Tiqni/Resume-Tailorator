@@ -43,6 +43,20 @@ logger = logging.getLogger(__name__)
 console = Console()
 app = typer.Typer()
 
+# Default models used by the --fast speed preset.
+_FAST_PRESET_FAST_MODEL = "openai:gpt-5-nano"
+_FAST_PRESET_STRONG_MODEL = "openai:gpt-5-mini"
+
+
+def _apply_fast_preset(model: str | None) -> tuple[int, int, bool, int]:
+    """Apply the --fast speed preset. Returns (write_attempts, review_iterations,
+    quality_gate, gate_threshold) and sets the fast/strong agent model tiers."""
+    set_agent_models(
+        fast=_FAST_PRESET_FAST_MODEL,
+        strong=model or _FAST_PRESET_STRONG_MODEL,
+    )
+    return 2, 1, True, 5
+
 
 def _get_company_slug(company_name: str) -> str:
     return company_name.replace(" ", "_").lower()
@@ -310,10 +324,9 @@ async def _tailor_impl(
         raise typer.Exit(code=1)
 
     if fast:
-        write_attempts, review_iterations = 2, 1
-        quality_gate = True
-        gate_threshold = 5
-        set_agent_models(fast="openai:gpt-5-nano", strong=model or "openai:gpt-5-mini")
+        write_attempts, review_iterations, quality_gate, gate_threshold = (
+            _apply_fast_preset(model)
+        )
 
     reporter = VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
 
@@ -381,6 +394,8 @@ async def _tailor_impl(
             )
         pre_parsed_cv = None
 
+    # LiveDashboard is a context manager (drives a Rich Live panel);
+    # VerboseReporter is not, so fall back to a nullcontext for it.
     dashboard_ctx = reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
     with dashboard_ctx:
         with use_reporter(reporter):
@@ -408,6 +423,8 @@ async def _tailor_impl(
                         f"[yellow]⚠️ Unexpected scraper output type: {type(scrape_result.output)}[/yellow]"
                     )
                     raise typer.Exit(code=1)
+            except (typer.Exit, KeyboardInterrupt):
+                raise
             except Exception as e:
                 logger.error(
                     "job_posting_scraping_failed", extra={"url": job_url, "error": str(e)}
@@ -550,10 +567,9 @@ async def _re_tailor_impl(
     os.makedirs(output_dir, exist_ok=True)
 
     if fast:
-        write_attempts, review_iterations = 2, 1
-        quality_gate = True
-        gate_threshold = 5
-        set_agent_models(fast="openai:gpt-5-nano", strong=model or "openai:gpt-5-mini")
+        write_attempts, review_iterations, quality_gate, gate_threshold = (
+            _apply_fast_preset(model)
+        )
 
     reporter = VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
 
@@ -641,6 +657,8 @@ async def _re_tailor_impl(
 
     console.print(f"📝 Applying recommendations: {recommendations[:50]}...")
 
+    # LiveDashboard is a context manager (drives a Rich Live panel);
+    # VerboseReporter is not, so fall back to a nullcontext for it.
     dashboard_ctx = reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
     with dashboard_ctx:
         with use_reporter(reporter):
