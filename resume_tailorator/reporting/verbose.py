@@ -34,7 +34,7 @@ class VerboseReporter:
         if label:
             self.console.print(f"\n[dim yellow]♨️  [{label}][/dim yellow]")
         preview = prompt[:300] + ("..." if len(prompt) > 300 else "")
-        self.console.print(f"[dim italic]Prompt: {preview}[/dim italic]")
+        self.console.print(f"Prompt: {preview}", style="dim italic", markup=False)
 
     def agent_retry(self, label: str, reason: str) -> None:
         self.console.print(f"[yellow]🔁 {label} retry: {reason}[/yellow]")
@@ -51,4 +51,4 @@ class VerboseReporter:
         self.console.print(f"[dim]· {label} done ({elapsed:.1f}s)[/dim]")
 
     def note(self, msg: str) -> None:
-        self.console.print(f"[yellow]{msg}[/yellow]")
+        self.console.print(msg, style="yellow", markup=False)

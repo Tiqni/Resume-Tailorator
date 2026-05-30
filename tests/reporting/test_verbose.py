@@ -49,4 +49,19 @@ def test_stage_transitions_print_status():
     rep.stage_start("PARSING_RESUME")
     rep.stage_done("PARSING_RESUME", success=True)
     text = out.getvalue()
-    assert "Parse Resume" in text or "PARSING_RESUME" in text
+    assert "Parse Resume" in text
+
+
+def test_stage_done_failure_prints_x():
+    console, out = _console()
+    rep = VerboseReporter(console=console, stages=["AUDITING_CV"])
+    rep.stage_done("AUDITING_CV", success=False)
+    assert "❌" in out.getvalue()
+
+
+def test_prompt_with_brackets_not_interpreted_as_markup():
+    console, out = _console()
+    rep = VerboseReporter(console=console)
+    rep.agent_start("Writer", "use [bold] and [/dim] in resume")
+    text = out.getvalue()
+    assert "[bold]" in text  # printed literally, not interpreted
