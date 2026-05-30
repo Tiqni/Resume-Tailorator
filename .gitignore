@@ -207,3 +207,4 @@ graphify-out/.graphify_python
 graphify-out/.graphify_root
 graphify-out/.vocab.txt
 graphify-out/.graphify_labels.json
+graphify-out/manifest.json
