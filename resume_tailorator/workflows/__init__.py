@@ -2,7 +2,6 @@ import asyncio
 import sys
 from datetime import datetime, timezone
 
-from pydantic_ai import AgentRunResult
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.usage import RunUsage
 
@@ -256,12 +255,18 @@ class ResumeTailorWorkflow:
                 self._set_stage("ANALYZING_JOB")
                 job_analysis = await self._analyze_job(job_analysis_prompt, verbose)
             else:
-                self._set_stage("ANALYZING_JOB")
+                # Parse and analyze run concurrently — show BOTH as running.
+                # Mark ANALYZING_JOB running directly (do NOT use _set_stage,
+                # which would prematurely flip the in-flight PARSING_RESUME to
+                # done before the gather completes).
+                self._stage_status["ANALYZING_JOB"] = "running"
+                self._current_stage = "ANALYZING_JOB"
+                self._reporter.stage_start("ANALYZING_JOB")
                 original_cv, job_analysis = await asyncio.gather(
                     self._parse_resume(resume_text, debug, verbose),
                     self._analyze_job(job_analysis_prompt, verbose),
                 )
-                self._stage_status["PARSING_RESUME"] = "done"
+                self._complete_stage("PARSING_RESUME")
         except UnexpectedModelBehavior:
             self._complete_stage("PARSING_RESUME", success=False)
             self._complete_stage("ANALYZING_JOB", success=False)

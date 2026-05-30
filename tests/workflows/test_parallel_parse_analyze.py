@@ -10,6 +10,7 @@ from resume_tailorator.models.agents.output import (
     ReviewResult,
 )
 from resume_tailorator.workflows import ResumeTailorWorkflow
+from tests.reporting.test_base import RecordingReporter
 
 
 class DummyRunResult:
@@ -65,10 +66,16 @@ async def test_parser_and_analyst_overlap(monkeypatch, sample_cv):
     monkeypatch.setattr("resume_tailorator.workflows.agents.auditor_agent.run", run_auditor)
     monkeypatch.setattr("resume_tailorator.workflows.agents.report_agent.run", run_auditor)
 
+    rec = RecordingReporter()
     result = await ResumeTailorWorkflow().run(
         "resume markdown text",
         job_content="A job posting",
+        reporter=rec,
     )
 
     assert in_flight["max"] == 2  # parser and analyst overlapped
     assert result.company_name == "Acme"
+    parse_dones = [e for e in rec.events if e[0] == "stage_done" and e[1] == "PARSING_RESUME"]
+    assert len(parse_dones) == 1  # completed exactly once, no premature/double emit
+    parse_starts = [e for e in rec.events if e[0] == "stage_start" and e[1] == "PARSING_RESUME"]
+    assert len(parse_starts) == 1
