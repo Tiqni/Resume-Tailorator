@@ -1,16 +1,16 @@
-"""Tests for run_agent() verbose streaming helper."""
+"""Tests for run_agent(): emits reporter events and streams when wants_tokens."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic_ai import Agent
 
+from resume_tailorator.reporting.base import use_reporter
 from resume_tailorator.workflows.agents import run_agent
+from tests.reporting.test_base import RecordingReporter
 
 
 class _AsyncIter:
-    """Minimal async iterator for mocking stream_text() output."""
-
     def __init__(self, items):
         self._items = iter(items)
 
@@ -24,72 +24,66 @@ class _AsyncIter:
             raise StopAsyncIteration
 
 
-class TestRunAgentNonVerbose:
-    """When verbose=False, run_agent delegates directly to agent.run()."""
-
+class TestRunAgentNonStreaming:
     @pytest.mark.anyio
-    async def test_delegates_to_agent_run(self):
+    async def test_delegates_to_agent_run_when_reporter_wants_no_tokens(self):
         agent = MagicMock(spec=Agent)
         expected = MagicMock()
         agent.run = AsyncMock(return_value=expected)
 
-        result = await run_agent(agent, "test prompt", verbose=False)
+        rec = RecordingReporter()  # wants_tokens = False
+        with use_reporter(rec):
+            result = await run_agent(agent, "prompt", agent_label="A")
 
         agent.run.assert_awaited_once()
         assert result is expected
+        kinds = [e[0] for e in rec.events]
+        assert kinds[0] == "agent_start"
+        assert "agent_done" in kinds
 
     @pytest.mark.anyio
     async def test_passes_usage_params(self):
         agent = MagicMock(spec=Agent)
         agent.run = AsyncMock()
-
-        await run_agent(agent, "test", verbose=False, usage="u", usage_limits="ul")
-
+        with use_reporter(RecordingReporter()):
+            await run_agent(agent, "test", agent_label="A", usage="u", usage_limits="ul")
         agent.run.assert_awaited_once_with("test", usage="u", usage_limits="ul")
 
 
-class TestRunAgentVerbose:
-    """When verbose=True, run_agent uses run_stream_events and prints to console."""
-
+class TestRunAgentStreaming:
     @pytest.mark.anyio
-    async def test_prints_stream_header(self):
+    async def test_emits_start_and_done_when_streaming(self):
         agent = MagicMock(spec=Agent)
-        agent.run = AsyncMock()
-        agent.run_stream_events = MagicMock()
+        agent.run_stream_events = MagicMock(return_value=_AsyncIter([]))
+        agent.run = AsyncMock(return_value=MagicMock())
 
-        # Return an empty async iterator (no streaming events)
-        agent.run_stream_events.return_value.__aenter__ = AsyncMock(
-            return_value=_AsyncIter([])
-        )
+        rec = RecordingReporter()
+        rec.wants_tokens = True
+        with use_reporter(rec):
+            await run_agent(agent, "prompt", agent_label="Writer")
 
-        with patch("resume_tailorator.workflows.agents._console") as mock_console:
-            _ = await run_agent(
-                agent, "test prompt", verbose=True, agent_label="TestAgent"
-            )
-
-        assert mock_console.print.assert_any_call
-        # run_stream_events was called with correct prompt/kwargs
         agent.run_stream_events.assert_called_once_with(
-            "test prompt", usage=None, usage_limits=None
+            "prompt", usage=None, usage_limits=None
         )
+        kinds = [e[0] for e in rec.events]
+        assert kinds[0] == "agent_start"
+        assert "agent_done" in kinds
 
+
+class TestRunAgentFallback:
     @pytest.mark.anyio
     async def test_falls_back_on_stream_error(self):
         agent = MagicMock(spec=Agent)
-        fallback_result = MagicMock()
-        agent.run = AsyncMock(return_value=fallback_result)
+        fallback = MagicMock()
+        agent.run = AsyncMock(return_value=fallback)
+        bad = MagicMock()
+        bad.__aiter__ = MagicMock(side_effect=RuntimeError("boom"))
+        agent.run_stream_events = MagicMock(return_value=bad)
 
-        # Make run_stream_events return an object that raises on async iteration
-        bad_iter = MagicMock()
-        bad_iter.__aiter__ = MagicMock(side_effect=RuntimeError("stream boom"))
-        agent.run_stream_events = MagicMock(return_value=bad_iter)
+        rec = RecordingReporter()
+        rec.wants_tokens = True
+        with use_reporter(rec):
+            result = await run_agent(agent, "p", agent_label="Writer")
 
-        with patch("resume_tailorator.workflows.agents._console"):
-            with patch("resume_tailorator.workflows.agents.logger") as mock_logger:
-                result = await run_agent(
-                    agent, "test", verbose=True, agent_label="Test"
-                )
-
-        mock_logger.warning.assert_called_once()
+        assert result is fallback
         agent.run.assert_awaited_once()
-        assert result is fallback_result

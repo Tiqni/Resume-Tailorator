@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -29,6 +30,7 @@ from resume_tailorator.tools.playwright import read_job_content_file
 from resume_tailorator.tools.job_scraper_helpers import (
     detect_placeholder_content,
 )
+from resume_tailorator.reporting.base import get_active_reporter
 
 logger = logging.getLogger(__name__)
 _console = Console()
@@ -38,47 +40,44 @@ async def run_agent(
     agent: Agent,
     prompt: str,
     *,
-    verbose: bool = False,
+    verbose: bool = False,  # retained for call-site compatibility; reporter drives streaming
     agent_label: str = "",
     usage: Usage | None = None,
     usage_limits: UsageLimits | None = None,
+    model: str | None = None,
 ) -> AgentRunResult:
-    """Run an agent, optionally streaming output in verbose mode."""
-    if not verbose:
-        return await agent.run(prompt, usage=usage, usage_limits=usage_limits)
+    """Run an agent, emitting lifecycle/token events to the active reporter."""
+    reporter = get_active_reporter()
 
-    if agent_label:
-        _console.print(f"\n[dim yellow]♨️  [{agent_label}][/dim yellow]")
+    run_kwargs: dict = {"usage": usage, "usage_limits": usage_limits}
+    resolved = model if model is not None else resolve_model(agent_label)
+    if resolved is not None:
+        run_kwargs["model"] = resolved
 
-    _console.print(
-        f"[dim italic]Prompt: {prompt[:300]}{'...' if len(prompt) > 300 else ''}[/dim italic]"
-    )
+    reporter.agent_start(agent_label, prompt)
+    start = time.monotonic()
+
+    if not reporter.wants_tokens:
+        result = await agent.run(prompt, **run_kwargs)
+        reporter.agent_done(agent_label, time.monotonic() - start)
+        return result
 
     try:
         result = None
-        async for event in agent.run_stream_events(
-            prompt, usage=usage, usage_limits=usage_limits
-        ):
+        async for event in agent.run_stream_events(prompt, **run_kwargs):
             if isinstance(event, AgentRunResultEvent):
                 result = event.result
             elif isinstance(event, PartDeltaEvent):
                 if isinstance(event.delta, TextPartDelta):
-                    _console.print(
-                        event.delta.content_delta, end="", style="green", markup=False
-                    )
+                    reporter.token(agent_label, event.delta.content_delta, "output")
                 elif isinstance(event.delta, ThinkingPartDelta):
-                    _console.print(
-                        event.delta.content_delta,
-                        end="",
-                        style="dim cyan",
-                        markup=False,
-                    )
+                    reporter.token(agent_label, event.delta.content_delta, "thinking")
 
-        _console.print()
+        if result is None:
+            result = await agent.run(prompt, **run_kwargs)
 
-        if result is not None:
-            return result
-        return await agent.run(prompt, usage=usage, usage_limits=usage_limits)
+        reporter.agent_done(agent_label, time.monotonic() - start)
+        return result
 
     except (KeyboardInterrupt, asyncio.CancelledError):
         raise
@@ -90,10 +89,10 @@ async def run_agent(
             extra={"agent_label": agent_label},
             exc_info=True,
         )
-        _console.print(
-            f"[yellow]⚠️  Stream interrupted for [{agent_label}], falling back to non-streaming...[/yellow]"
-        )
-        return await agent.run(prompt, usage=usage, usage_limits=usage_limits)
+        reporter.note(f"Stream interrupted for [{agent_label}], falling back...")
+        result = await agent.run(prompt, **run_kwargs)
+        reporter.agent_done(agent_label, time.monotonic() - start)
+        return result
 
 
 class _QualityState(BaseModel):
@@ -111,6 +110,47 @@ _cover_qs = _QualityState()
 
 MODEL_NAME = "openai:gpt-5-mini"
 _original_model = MODEL_NAME
+
+# Per-agent model tiers. Defaults equal MODEL_NAME (no behavior change until
+# configured via set_agent_models()).
+FAST_MODEL = MODEL_NAME
+STRONG_MODEL = MODEL_NAME
+_AGENT_TIERS = {
+    "Parser": "fast",
+    "Analyst": "fast",
+    "Quality Gate": "fast",
+    "Reviewer": "fast",
+    "Writer": "strong",
+    "Writer (refine)": "strong",
+    "Auditor": "strong",
+    "Report": "strong",
+    "Cover Letter Writer": "strong",
+    "Scraper": "strong",
+}
+
+
+def set_agent_models(*, fast: str | None = None, strong: str | None = None) -> None:
+    """Override the fast/strong model tiers used by run_agent."""
+    global FAST_MODEL, STRONG_MODEL
+    if fast is not None:
+        FAST_MODEL = fast
+    if strong is not None:
+        STRONG_MODEL = strong
+
+
+def reset_agent_models() -> None:
+    """Reset both tiers to the current MODEL_NAME."""
+    global FAST_MODEL, STRONG_MODEL
+    FAST_MODEL = MODEL_NAME
+    STRONG_MODEL = MODEL_NAME
+
+
+def resolve_model(agent_label: str) -> str | None:
+    """Resolve the model for an agent label, or None to use the agent default."""
+    if FAST_MODEL == STRONG_MODEL == MODEL_NAME:
+        return None  # unconfigured: let each agent use its own model
+    tier = _AGENT_TIERS.get(agent_label, "strong")
+    return FAST_MODEL if tier == "fast" else STRONG_MODEL
 
 
 def get_model() -> str:
