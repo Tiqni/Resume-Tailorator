@@ -49,7 +49,7 @@ async def run_agent(
     """Run an agent, emitting lifecycle/token events to the active reporter."""
     reporter = get_active_reporter()
 
-    run_kwargs: dict = {"usage": usage, "usage_limits": usage_limits}
+    run_kwargs: dict[str, Any] = {"usage": usage, "usage_limits": usage_limits}
     resolved = model if model is not None else resolve_model(agent_label)
     if resolved is not None:
         run_kwargs["model"] = resolved
@@ -125,7 +125,7 @@ _AGENT_TIERS = {
     "Auditor": "strong",
     "Report": "strong",
     "Cover Letter Writer": "strong",
-    "Scraper": "strong",
+    "Scraper": "strong",  # job_scraper_agent; wired in a later task
 }
 
 
@@ -139,7 +139,7 @@ def set_agent_models(*, fast: str | None = None, strong: str | None = None) -> N
 
 
 def reset_agent_models() -> None:
-    """Reset both tiers to the current MODEL_NAME."""
+    """Reset both tiers to MODEL_NAME as it was at module import time."""
     global FAST_MODEL, STRONG_MODEL
     FAST_MODEL = MODEL_NAME
     STRONG_MODEL = MODEL_NAME
