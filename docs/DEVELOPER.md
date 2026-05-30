@@ -147,6 +147,31 @@ Key concepts:
 - **Content-hash caching**: Resume parsing is cached by SHA-256 hash + parser version
 - **Pure-Python diffs**: CVDiff and GapAnalysis are computed deterministically, not by LLM
 
+## Progress Reporting
+
+The `resume_tailorator/reporting/` package provides a lightweight, context-local progress reporting abstraction.
+
+**Protocol and context resolution:**
+- `ProgressReporter` is a `Protocol` (structural interface) defined in `reporting/base.py`.
+- The active reporter is stored in a `contextvars.ContextVar`; call `get_active_reporter()` to retrieve it and `use_reporter(reporter)` (a context manager) to activate one for the current async context.
+- `run_agent()` in `workflows/agents.py` emits lifecycle events (stage start/complete, token streaming) to the active reporter.
+
+**Implementations:**
+- `NullReporter` — no-op; used in tests and when no reporter is set.
+- `LiveDashboard` — the default in normal runs. In a TTY it renders an updating Rich panel; in a non-TTY (CI, pipes) it falls back to plain line-by-line logging.
+- `VerboseReporter` — used with `--verbose`. Streams agent thinking and output tokens directly to stdout without a live panel.
+
+**Known TTY interleaving limitation:** the workflow contains bare `print()` calls that can interleave with the `LiveDashboard` Rich live display in an interactive terminal, garbling the visual output (correctness is unaffected). This does not occur in non-TTY mode or with `--verbose`. A future follow-up should route all workflow `print()` calls through the active reporter to eliminate the conflict.
+
+## Speed Levers
+
+Four independent mechanisms reduce end-to-end latency:
+
+1. **Parallel parse∥analyze**: on a cold cache the Resume Parser and Job Analyst stages run concurrently via `asyncio.gather`.
+2. **Advisory quality gate**: the quality gate is now single-pass and advisory — it scores once and only re-runs the agent when the score falls below the configurable `--gate-threshold` (default 6). The gate is skipped entirely for Parser and Analyst.
+3. **Trimmed configurable loops**: the write/review retry defaults are 2 write attempts × 1 review iteration (down from 3×3). Both are adjustable via `--write-attempts` and `--review-iterations`.
+4. **Per-agent model tuning**: `set_agent_models(fast_model)` / `resolve_model(agent_name)` in `workflows/agents.py` let mechanical agents (Parser, Analyst) use a faster/cheaper model tier. The `--fast` CLI flag activates all four levers simultaneously.
+
 ## How to Add a New Pipeline Agent
 
 1. **Define the output model** in `models/agents/output.py`:

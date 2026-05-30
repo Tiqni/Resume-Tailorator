@@ -1,9 +1,13 @@
 """Tests for per-agent quality gate validators."""
 
 import pytest
+import resume_tailorator.workflows.agents as agents_mod
 from pydantic_ai import models
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.models.test import TestModel
+from resume_tailorator.models.agents.output import CV, QualityCheckResult, WorkExperience
+from resume_tailorator.reporting.base import use_reporter
+from tests.reporting.test_base import RecordingReporter
 
 models.ALLOW_MODEL_REQUESTS = False
 
@@ -201,11 +205,6 @@ def test_quality_state_accepts_cv_assignment():
 # ---------------------------------------------------------------------------
 # Advisory Gate (Task 7)
 # ---------------------------------------------------------------------------
-
-import resume_tailorator.workflows.agents as agents_mod
-from resume_tailorator.models.agents.output import CV, QualityCheckResult, WorkExperience
-from resume_tailorator.reporting.base import use_reporter
-from tests.reporting.test_base import RecordingReporter
 
 
 def _cv_for_gate() -> CV:
