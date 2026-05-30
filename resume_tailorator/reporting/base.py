@@ -39,14 +39,14 @@ class NullReporter:
     def note(self, msg: str) -> None: ...
 
 
-_active_reporter: contextvars.ContextVar[ProgressReporter] = contextvars.ContextVar(
-    "active_reporter", default=NullReporter()
+_active_reporter: contextvars.ContextVar[ProgressReporter | None] = contextvars.ContextVar(
+    "active_reporter", default=None
 )
 
 
 def get_active_reporter() -> ProgressReporter:
     """Return the reporter installed for the current async context."""
-    return _active_reporter.get()
+    return _active_reporter.get() or NullReporter()
 
 
 @contextlib.contextmanager

@@ -1,5 +1,7 @@
 """Tests for the ProgressReporter seam."""
 
+import pytest
+
 from resume_tailorator.reporting.base import (
     NullReporter,
     ProgressReporter,
@@ -66,11 +68,18 @@ def test_default_active_reporter_is_null():
 
 def test_use_reporter_sets_and_restores():
     rec = RecordingReporter()
-    outer = get_active_reporter()
     with use_reporter(rec):
         assert get_active_reporter() is rec
-    assert get_active_reporter() is outer
+    assert isinstance(get_active_reporter(), NullReporter)
 
 
 def test_recording_reporter_satisfies_protocol():
     assert isinstance(RecordingReporter(), ProgressReporter)
+
+
+def test_use_reporter_restores_on_exception():
+    rec = RecordingReporter()
+    with pytest.raises(ValueError):
+        with use_reporter(rec):
+            raise ValueError("boom")
+    assert isinstance(get_active_reporter(), NullReporter)
