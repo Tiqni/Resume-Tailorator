@@ -200,6 +200,10 @@ output/
 /coverage.json
 pytest-coverage.txt
 pytest.xml
+
+# Graphify knowledge graph outputs (local/derived, re-generated on demand)
+graphify-out/
+
 # Local Pi runtime state
 .atl/
 .pi-lens/
