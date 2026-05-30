@@ -50,3 +50,13 @@ def test_render_table_lists_all_stages():
     console = _console(False)
     console.print(table)
     assert table is not None
+
+
+def test_stage_done_failure_logs_failed():
+    out = io.StringIO()
+    console = Console(file=out, force_terminal=False, width=80)
+    dash = LiveDashboard(console=console)
+    with dash:
+        dash.stage_start("AUDITING_CV")
+        dash.stage_done("AUDITING_CV", success=False)
+    assert "FAILED" in out.getvalue()

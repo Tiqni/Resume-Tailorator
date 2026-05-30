@@ -83,17 +83,18 @@ class LiveDashboard:
         table.add_column("Status")
         table.add_column("Elapsed", justify="right")
         table.add_column("Notes")
+        retry_summary = ", ".join(
+            f"{agent_label}: {n} retr{'y' if n == 1 else 'ies'}"
+            for agent_label, n in self.retry_counts.items()
+            if n
+        )
         for stage in self.stages:
             status = self.status.get(stage, "pending")
             icon = _ICONS.get(status, "?")
             label = _LABELS.get(stage, stage)
             secs = self.elapsed.get(stage)
             elapsed = f"{secs:.1f}s" if secs is not None else ""
-            notes = []
-            for agent_label, n in self.retry_counts.items():
-                if n:
-                    notes.append(f"{agent_label}: {n} retr{'y' if n == 1 else 'ies'}")
-            note = ", ".join(notes) if status == "running" else ""
+            note = retry_summary if status == "running" else ""
             table.add_row(icon, label, status.upper(), elapsed, note)
         caption = self.activity[:80]
         if caption:
@@ -114,7 +115,7 @@ class LiveDashboard:
             if stage in self.started_at:
                 self.elapsed[stage] = time.monotonic() - self.started_at[stage]
         icon = "✅" if success else "❌"
-        self._log(f"{icon} {_LABELS.get(stage, stage)}: DONE")
+        self._log(f"{icon} {_LABELS.get(stage, stage)}: {'DONE' if success else 'FAILED'}")
         self._refresh()
 
     def agent_start(self, label: str, prompt: str) -> None:
