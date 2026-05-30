@@ -204,6 +204,9 @@ resume_parser_agent = Agent(
     6. Structure work experience with company, role, dates, and highlight bullets
     7. Include all projects with their descriptions
     8. Preserve all education entries, certifications, and publications
+    9. CRITICAL: Preserve ALL hyperlinks in their original markdown format [text](url).
+       Never convert clickable links to plain text or bare URLs. Links can appear in
+       summary, projects, publications, experience highlights, or any other field.
     """,
     output_type=CV,
     retries=5,
@@ -230,6 +233,9 @@ writer_agent = Agent(
     8. Maintain chronological order and accurate dates
     9. If the original CV lacks a required skill, do NOT add it - focus on highlighting transferable skills instead
     10. Group all the skills so that the most relevant skills to the job are at the top of the skills section
+    11. CRITICAL: Preserve ALL hyperlinks from the Original CV in their exact markdown format [text](url).
+        Never convert clickable links to plain text, bare URLs, or parenthetical URLs.
+        You may rephrase the surrounding text, but the link syntax must stay intact.
     """,
     output_type=CV,
     retries=5,
@@ -261,12 +267,18 @@ auditor_agent = Agent(
        - Ensure human-like, professional tone
        - Score: 0 = natural, 10 = very robotic
     
-    3. RELEVANCE CHECK:
+    3. HYPERLINK PRESERVATION CHECK:
+       - Verify ALL hyperlinks from the original CV are present in the new CV
+       - Verify links use the correct markdown format [text](url) — not plain text or bare URLs
+       - Flag any missing or broken link as a critical issue in the issues list
+       - No separate score field exists for this check — use issues and passed to reflect results
+    
+    4. RELEVANCE CHECK:
        - Verify the CV highlights experiences matching job requirements
        - Check if job keywords are naturally incorporated
        - Ensure the most relevant skills are prominent
     
-    4. QUALITY CHECK:
+    5. QUALITY CHECK:
        - Verify proper structure and formatting
        - Check for clear, quantifiable achievements
        - Ensure consistency in dates and information
@@ -274,6 +286,7 @@ auditor_agent = Agent(
     PASS CRITERIA:
     - Hallucination score must be 0-2 (minor rephrasing acceptable)
     - AI cliché score must be 0-3 (minimal AI language)
+    - All hyperlinks from the original CV must be preserved in [text](url) format
     - All critical issues must be resolved
     
     Return a detailed structured Audit Result with specific issues and actionable suggestions.
