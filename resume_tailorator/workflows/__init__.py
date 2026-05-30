@@ -29,8 +29,8 @@ from resume_tailorator.workflows.agents import (
 
 class ResumeTailorWorkflow:
     MAX_RETRIES = 3
-    max_review_iterations = 3
-    max_write_attempts = 3
+    max_review_iterations = 1
+    max_write_attempts = 2
 
     # Pipeline stages for status tracking
     STAGES = [
@@ -42,10 +42,14 @@ class ResumeTailorWorkflow:
         "GENERATING_REPORT",
     ]
 
-    def __init__(self):
+    def __init__(self, write_attempts: int | None = None, review_iterations: int | None = None):
         self._current_stage: str | None = None
         self._stage_status: dict[str, str] = {stage: "pending" for stage in self.STAGES}
         self._reporter: ProgressReporter = NullReporter()
+        if write_attempts is not None:
+            self.max_write_attempts = write_attempts
+        if review_iterations is not None:
+            self.max_review_iterations = review_iterations
 
     def _set_stage(self, stage: str) -> None:
         """Mark current stage as running, previous as done."""
