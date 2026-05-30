@@ -24,6 +24,7 @@ from resume_tailorator.workflows.agents import (
     writer_agent,
     get_model,
     set_model,
+    set_agent_models,
 )
 
 
@@ -221,6 +222,7 @@ class ResumeTailorWorkflow:
         # Override model if specified
         if model:
             set_model(model)
+            set_agent_models(fast=model, strong=model)
             print(f"🤖 Using model: {model}")
         else:
             print(f"🤖 Using model: {get_model()}")

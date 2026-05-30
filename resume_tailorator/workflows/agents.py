@@ -139,15 +139,15 @@ def set_agent_models(*, fast: str | None = None, strong: str | None = None) -> N
 
 
 def reset_agent_models() -> None:
-    """Reset both tiers to MODEL_NAME as it was at module import time."""
+    """Reset both tiers to the import-time default model (_original_model)."""
     global FAST_MODEL, STRONG_MODEL
-    FAST_MODEL = MODEL_NAME
-    STRONG_MODEL = MODEL_NAME
+    FAST_MODEL = _original_model
+    STRONG_MODEL = _original_model
 
 
 def resolve_model(agent_label: str) -> str | None:
     """Resolve the model for an agent label, or None to use the agent default."""
-    if FAST_MODEL == STRONG_MODEL == MODEL_NAME:
+    if FAST_MODEL == STRONG_MODEL == _original_model:
         return None  # unconfigured: let each agent use its own model
     tier = _AGENT_TIERS.get(agent_label, "strong")
     return FAST_MODEL if tier == "fast" else STRONG_MODEL

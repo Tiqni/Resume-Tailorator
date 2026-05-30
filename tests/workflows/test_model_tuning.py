@@ -48,3 +48,27 @@ async def test_explicit_model_overrides_resolution():
         await run_agent(agent, "p", agent_label="Parser", model="openai:custom")
     _, kwargs = agent.run.call_args
     assert kwargs["model"] == "openai:custom"
+
+
+def test_set_model_alone_does_not_mispin_agents():
+    """--model changes MODEL_NAME but, without tier config, must NOT pin agents
+    to a stale tier model (regression test)."""
+    agents_mod.set_model("openai:gpt-4o")
+    try:
+        # tiers untouched → still unconfigured → no spurious override
+        assert agents_mod.resolve_model("Writer") is None
+        assert agents_mod.resolve_model("Parser") is None
+    finally:
+        agents_mod.reset_model()
+        agents_mod.reset_agent_models()
+
+
+def test_model_override_via_tiers_applies_to_all_agents():
+    """Routing an explicit model through both tiers overrides every agent."""
+    agents_mod.set_agent_models(fast="openai:gpt-4o", strong="openai:gpt-4o")
+    try:
+        assert agents_mod.resolve_model("Parser") == "openai:gpt-4o"
+        assert agents_mod.resolve_model("Writer") == "openai:gpt-4o"
+        assert agents_mod.resolve_model("Auditor") == "openai:gpt-4o"
+    finally:
+        agents_mod.reset_agent_models()
