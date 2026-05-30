@@ -1,6 +1,7 @@
 """CLI entry point for Resume Tailorator using Typer."""
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
@@ -33,8 +34,10 @@ from resume_tailorator.utils.resume_converter import (
     ResumeFileNotFoundError,
     UnsupportedFormatError,
 )
+from resume_tailorator.reporting import LiveDashboard, VerboseReporter
+from resume_tailorator.reporting.base import use_reporter
 from resume_tailorator.workflows import ResumeTailorWorkflow
-from resume_tailorator.workflows.agents import job_scraper_agent, run_agent
+from resume_tailorator.workflows.agents import job_scraper_agent, run_agent, set_agent_models, set_quality_gate
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -184,8 +187,17 @@ async def _run_workflow(
     resume_name_pattern: str = "{company_name}-{full_name}",
     pre_parsed_cv: CV | None = None,
     debug: bool = False,
+    write_attempts: int = 2,
+    review_iterations: int = 1,
+    quality_gate: bool = True,
+    gate_threshold: int = 6,
+    reporter=None,
 ) -> tuple[int, str | None, str | None, ResumeTailorResult]:
-    workflow = ResumeTailorWorkflow()
+    set_quality_gate(enabled=quality_gate, threshold=gate_threshold)
+    workflow = ResumeTailorWorkflow(
+        write_attempts=write_attempts,
+        review_iterations=review_iterations,
+    )
 
     job_content = job_posting_markdown
     if recommendations:
@@ -198,6 +210,7 @@ async def _run_workflow(
         pre_parsed_cv=pre_parsed_cv,
         debug=debug,
         verbose=verbose,
+        reporter=reporter,
     )
 
     resume_path = None
@@ -283,6 +296,11 @@ async def _tailor_impl(
     output_pattern: str = "{company_name}-{job_title}",
     resume_name_pattern: str = "{company_name}-{full_name}",
     debug: bool = False,
+    write_attempts: int = 2,
+    review_iterations: int = 1,
+    quality_gate: bool = True,
+    gate_threshold: int = 6,
+    fast: bool = False,
 ) -> int:
     """Async implementation of tailor command."""
     if not job_url.startswith(("http://", "https://")):
@@ -290,6 +308,14 @@ async def _tailor_impl(
             f"[red]❌ Error: Job URL must start with http:// or https://. Got: {job_url}[/red]"
         )
         raise typer.Exit(code=1)
+
+    if fast:
+        write_attempts, review_iterations = 2, 1
+        quality_gate = True
+        gate_threshold = 5
+        set_agent_models(fast="openai:gpt-5-nano", strong=model or "openai:gpt-5-mini")
+
+    reporter = VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
 
     resume_path_expanded = os.path.expanduser(resume_path)
     if not os.path.exists(resume_path_expanded):
@@ -355,51 +381,59 @@ async def _tailor_impl(
             )
         pre_parsed_cv = None
 
-    logger.info("scraping_job_posting", extra={"url": job_url})
-    try:
-        scrape_result = await run_agent(
-            job_scraper_agent,
-            f"Extract and convert to Markdown this job posting: {job_url}",
-            verbose=verbose,
-            agent_label="Scraper",
-        )
-        if isinstance(scrape_result.output, ScrapedJobPosting):
-            job_posting_markdown = scrape_result.output.markdown
-            if not job_posting_markdown.strip():
-                logger.error("job_posting_scraped_but_empty", extra={"url": job_url})
-                console.print("[red]❌ Job posting scraped but content is empty[/red]")
+    dashboard_ctx = reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+    with dashboard_ctx:
+        with use_reporter(reporter):
+            logger.info("scraping_job_posting", extra={"url": job_url})
+            try:
+                scrape_result = await run_agent(
+                    job_scraper_agent,
+                    f"Extract and convert to Markdown this job posting: {job_url}",
+                    verbose=verbose,
+                    agent_label="Scraper",
+                )
+                if isinstance(scrape_result.output, ScrapedJobPosting):
+                    job_posting_markdown = scrape_result.output.markdown
+                    if not job_posting_markdown.strip():
+                        logger.error("job_posting_scraped_but_empty", extra={"url": job_url})
+                        console.print("[red]❌ Job posting scraped but content is empty[/red]")
+                        raise typer.Exit(code=1)
+                    logger.info(
+                        "job_posting_scraped_successfully",
+                        extra={"url": job_url, "content_length": len(job_posting_markdown)},
+                    )
+                    console.print(f"✅ Job posting scraped successfully from {job_url}")
+                else:
+                    console.print(
+                        f"[yellow]⚠️ Unexpected scraper output type: {type(scrape_result.output)}[/yellow]"
+                    )
+                    raise typer.Exit(code=1)
+            except Exception as e:
+                logger.error(
+                    "job_posting_scraping_failed", extra={"url": job_url, "error": str(e)}
+                )
+                console.print(f"[red]❌ Failed to scrape job posting from URL: {e}[/red]")
+                console.print(
+                    "[yellow]💡 Tip: Ensure the URL is publicly accessible and contains a valid job posting.[/yellow]"
+                )
                 raise typer.Exit(code=1)
-            logger.info(
-                "job_posting_scraped_successfully",
-                extra={"url": job_url, "content_length": len(job_posting_markdown)},
-            )
-            console.print(f"✅ Job posting scraped successfully from {job_url}")
-        else:
-            console.print(
-                f"[yellow]⚠️ Unexpected scraper output type: {type(scrape_result.output)}[/yellow]"
-            )
-            raise typer.Exit(code=1)
-    except Exception as e:
-        logger.error(
-            "job_posting_scraping_failed", extra={"url": job_url, "error": str(e)}
-        )
-        console.print(f"[red]❌ Failed to scrape job posting from URL: {e}[/red]")
-        console.print(
-            "[yellow]💡 Tip: Ensure the URL is publicly accessible and contains a valid job posting.[/yellow]"
-        )
-        raise typer.Exit(code=1)
 
-    exit_code, resume_path_out, report_path_out, result = await _run_workflow(
-        resume_content,
-        job_posting_markdown,
-        output_dir,
-        model,
-        verbose=verbose,
-        output_pattern=output_pattern,
-        resume_name_pattern=resume_name_pattern,
-        pre_parsed_cv=pre_parsed_cv,
-        debug=debug,
-    )
+            exit_code, resume_path_out, report_path_out, result = await _run_workflow(
+                resume_content,
+                job_posting_markdown,
+                output_dir,
+                model,
+                verbose=verbose,
+                output_pattern=output_pattern,
+                resume_name_pattern=resume_name_pattern,
+                pre_parsed_cv=pre_parsed_cv,
+                debug=debug,
+                write_attempts=write_attempts,
+                review_iterations=review_iterations,
+                quality_gate=quality_gate,
+                gate_threshold=gate_threshold,
+                reporter=reporter,
+            )
 
     if exit_code == 0:
         try:
@@ -466,6 +500,15 @@ def tailor(
     debug: bool = typer.Option(
         False, "--debug", "-d", help="Enable debug output and save converted resume"
     ),
+    fast: bool = typer.Option(
+        False, "--fast", help="Speed preset: trimmed loops + fast models for mechanical agents"
+    ),
+    write_attempts: int = typer.Option(2, help="Max writer attempts in the write/audit loop"),
+    review_iterations: int = typer.Option(1, help="Max reviewer iterations per write attempt"),
+    quality_gate: bool = typer.Option(
+        True, "--quality-gate/--no-quality-gate", help="Enable the advisory quality gate"
+    ),
+    gate_threshold: int = typer.Option(6, help="Re-run an agent only when its quality score is below this"),
 ) -> int:
     """Run the full resume tailoring workflow."""
     return asyncio.run(
@@ -478,6 +521,11 @@ def tailor(
             output_pattern=output_pattern,
             resume_name_pattern=resume_name_pattern,
             debug=debug,
+            write_attempts=write_attempts,
+            review_iterations=review_iterations,
+            quality_gate=quality_gate,
+            gate_threshold=gate_threshold,
+            fast=fast,
         )
     )
 
@@ -492,9 +540,22 @@ async def _re_tailor_impl(
     output_pattern: str = "{company_name}-{job_title}",
     resume_name_pattern: str = "{company_name}-{full_name}",
     debug: bool = False,
+    write_attempts: int = 2,
+    review_iterations: int = 1,
+    quality_gate: bool = True,
+    gate_threshold: int = 6,
+    fast: bool = False,
 ) -> int:
     """Async implementation of re-tailor command."""
     os.makedirs(output_dir, exist_ok=True)
+
+    if fast:
+        write_attempts, review_iterations = 2, 1
+        quality_gate = True
+        gate_threshold = 5
+        set_agent_models(fast="openai:gpt-5-nano", strong=model or "openai:gpt-5-mini")
+
+    reporter = VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
 
     repo = SQLiteResumeMemoryRepository()
     parser = PydanticAIResumeParser()
@@ -580,18 +641,26 @@ async def _re_tailor_impl(
 
     console.print(f"📝 Applying recommendations: {recommendations[:50]}...")
 
-    exit_code, resume_path_out, report_path_out, result = await _run_workflow(
-        resume_content,
-        job_posting_markdown,
-        output_dir,
-        model,
-        recommendations=recommendations,
-        verbose=verbose,
-        output_pattern=output_pattern,
-        resume_name_pattern=resume_name_pattern,
-        pre_parsed_cv=pre_parsed_cv,
-        debug=debug,
-    )
+    dashboard_ctx = reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+    with dashboard_ctx:
+        with use_reporter(reporter):
+            exit_code, resume_path_out, report_path_out, result = await _run_workflow(
+                resume_content,
+                job_posting_markdown,
+                output_dir,
+                model,
+                recommendations=recommendations,
+                verbose=verbose,
+                output_pattern=output_pattern,
+                resume_name_pattern=resume_name_pattern,
+                pre_parsed_cv=pre_parsed_cv,
+                debug=debug,
+                write_attempts=write_attempts,
+                review_iterations=review_iterations,
+                quality_gate=quality_gate,
+                gate_threshold=gate_threshold,
+                reporter=reporter,
+            )
 
     if exit_code == 0:
         try:
@@ -650,6 +719,15 @@ def re_tailor(
     debug: bool = typer.Option(
         False, "--debug", "-d", help="Enable debug output and save converted resume"
     ),
+    fast: bool = typer.Option(
+        False, "--fast", help="Speed preset: trimmed loops + fast models for mechanical agents"
+    ),
+    write_attempts: int = typer.Option(2, help="Max writer attempts in the write/audit loop"),
+    review_iterations: int = typer.Option(1, help="Max reviewer iterations per write attempt"),
+    quality_gate: bool = typer.Option(
+        True, "--quality-gate/--no-quality-gate", help="Enable the advisory quality gate"
+    ),
+    gate_threshold: int = typer.Option(6, help="Re-run an agent only when its quality score is below this"),
 ) -> int:
     """Re-run tailoring with recommendations from a prior audit."""
     return asyncio.run(
@@ -663,6 +741,11 @@ def re_tailor(
             output_pattern=output_pattern,
             resume_name_pattern=resume_name_pattern,
             debug=debug,
+            write_attempts=write_attempts,
+            review_iterations=review_iterations,
+            quality_gate=quality_gate,
+            gate_threshold=gate_threshold,
+            fast=fast,
         )
     )
 

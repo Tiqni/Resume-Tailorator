@@ -745,6 +745,21 @@ def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
     assert captured_args["base_filename"] == expected_base
 
 
+def test_tailor_accepts_fast_and_gate_flags():
+    """New CLI flags are recognized (no error from Typer parsing)."""
+    from typer.testing import CliRunner
+    from resume_tailorator.main import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["tailor", "--help"])
+    assert result.exit_code == 0
+    assert "--fast" in result.output
+    assert "--write-attempts" in result.output
+    assert "--review-iterations" in result.output
+    assert "--no-quality-gate" in result.output or "--quality-gate" in result.output
+    assert "--gate-threshold" in result.output
+
+
 def test_re_tailor_custom_patterns(tmp_path, monkeypatch) -> None:
     """re_tailor with custom patterns should create correctly named files."""
     output_dir = tmp_path / "output"
