@@ -106,16 +106,19 @@ class ResumeTailorWorkflow:
         for the duration of the run, then delegates to _run_impl.
         """
         self._reporter = reporter or NullReporter()
-        with use_reporter(self._reporter):
-            return await self._run_impl(
-                resume_text,
-                job_content_file_path=job_content_file_path,
-                job_content=job_content,
-                model=model,
-                pre_parsed_cv=pre_parsed_cv,
-                debug=debug,
-                verbose=verbose,
-            )
+        try:
+            with use_reporter(self._reporter):
+                return await self._run_impl(
+                    resume_text,
+                    job_content_file_path=job_content_file_path,
+                    job_content=job_content,
+                    model=model,
+                    pre_parsed_cv=pre_parsed_cv,
+                    debug=debug,
+                    verbose=verbose,
+                )
+        finally:
+            self._reporter = NullReporter()
 
     async def _run_impl(
         self,
@@ -286,7 +289,6 @@ class ResumeTailorWorkflow:
         job_data_json = job_analysis.model_dump_json()
 
         # --- STEP 2: WRITE + REVIEW + AUDIT LOOP ---
-        self._set_stage("WRITING_CV")
         new_cv: CV | None = None
         audit = None
         review = None
@@ -518,7 +520,6 @@ Compare the two structured CVs carefully. Ensure that:
                     print("   🔄 Will retry...\n")
                     continue
                 else:
-                    self._complete_stage("AUDITING_CV", success=False)
                     print("   ❌ Max attempts reached\n")
                     break
 
