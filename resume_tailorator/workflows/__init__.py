@@ -7,6 +7,7 @@ from pydantic_ai.usage import RunUsage
 
 from resume_tailorator.models.agents.output import CV, CVDiff, FinalReport, JobAnalysis
 from resume_tailorator.models.workflow import ResumeTailorResult
+from resume_tailorator.reporting.base import NullReporter, ProgressReporter, use_reporter
 from resume_tailorator.utils.cv_diff import compute_cv_diff, compute_gap_analysis
 from resume_tailorator.workflows.agents import (
     USAGE_LIMITS,
@@ -44,20 +45,24 @@ class ResumeTailorWorkflow:
     def __init__(self):
         self._current_stage: str | None = None
         self._stage_status: dict[str, str] = {stage: "pending" for stage in self.STAGES}
+        self._reporter: ProgressReporter = NullReporter()
 
     def _set_stage(self, stage: str) -> None:
         """Mark current stage as running, previous as done."""
         if self._current_stage and self._current_stage in self._stage_status:
             if self._stage_status[self._current_stage] == "running":
                 self._stage_status[self._current_stage] = "done"
+                self._reporter.stage_done(self._current_stage, success=True)
         self._current_stage = stage
         if stage in self._stage_status:
             self._stage_status[stage] = "running"
+        self._reporter.stage_start(stage)
 
     def _complete_stage(self, stage: str, success: bool = True) -> None:
         """Mark a stage as completed or failed."""
         if stage in self._stage_status:
             self._stage_status[stage] = "failed" if not success else "done"
+        self._reporter.stage_done(stage, success=success)
 
     def _print_pipeline_status(self) -> None:
         """Print current pipeline status."""
@@ -93,18 +98,36 @@ class ResumeTailorWorkflow:
         pre_parsed_cv: CV | None = None,
         debug: bool = False,
         verbose: bool = False,
+        reporter: ProgressReporter | None = None,
     ) -> ResumeTailorResult:
         """Run the resume tailoring workflow.
 
-        Args:
-            resume_text: The resume content as text.
-            job_content_file_path: Path to job posting file (legacy, file-based).
-            job_content: Job posting markdown content (new, direct content).
-            model: AI model override (e.g., openai:gpt-4o-mini).
-
-        Note:
-            If both job_content_file_path and job_content are provided, job_content takes priority.
+        Installs `reporter` (or a NullReporter) as the active progress reporter
+        for the duration of the run, then delegates to _run_impl.
         """
+        self._reporter = reporter or NullReporter()
+        with use_reporter(self._reporter):
+            return await self._run_impl(
+                resume_text,
+                job_content_file_path=job_content_file_path,
+                job_content=job_content,
+                model=model,
+                pre_parsed_cv=pre_parsed_cv,
+                debug=debug,
+                verbose=verbose,
+            )
+
+    async def _run_impl(
+        self,
+        resume_text: str,
+        job_content_file_path: str | None = None,
+        job_content: str | None = None,
+        model: str | None = None,
+        *,
+        pre_parsed_cv: CV | None = None,
+        debug: bool = False,
+        verbose: bool = False,
+    ) -> ResumeTailorResult:
         # Override model if specified
         if model:
             set_model(model)
