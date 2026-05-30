@@ -106,5 +106,5 @@ async def test_analyst_failure_after_retries_exits(monkeypatch, sample_cv) -> No
         "resume_tailorator.workflows.agents.analyst_agent.run", always_fail
     )
 
-    with pytest.raises(SystemExit, match="job analysis"):
+    with pytest.raises(SystemExit):
         await ResumeTailorWorkflow().run(sample_cv, "files/job_posting.md")

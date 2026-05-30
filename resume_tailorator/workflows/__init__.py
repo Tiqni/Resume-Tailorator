@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from datetime import datetime, timezone
 
@@ -88,6 +89,89 @@ class ResumeTailorWorkflow:
             print(f"  {current_marker}{icon} {label}: {status.upper()}")
         print("=" * 50 + "\n")
 
+    async def _parse_resume(self, resume_text: str, debug: bool, verbose: bool) -> CV:
+        """Parse the original resume into a CV. Raises on hard failure."""
+        usage = RunUsage()
+        original_cv: CV | None = None
+        original_cv_result = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                original_cv_result = await run_agent(
+                    resume_parser_agent,
+                    f"Parse this resume into structured format:\n\n{resume_text}",
+                    verbose=verbose,
+                    agent_label="Parser",
+                    usage=usage,
+                    usage_limits=USAGE_LIMITS,
+                )
+                if original_cv_result.output is None:
+                    raise ValueError("Resume parsing returned None")
+                if (
+                    original_cv_result.output.full_name
+                    and original_cv_result.output.experience
+                ):
+                    original_cv = original_cv_result.output
+                    break
+                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete resume parse, retrying...")
+            except UnexpectedModelBehavior:
+                if _parser_qs.last_output is not None:
+                    print("⚠️  Resume Parser quality gate exhausted — using best available output")
+                    original_cv = _parser_qs.last_output
+                    break
+                raise
+            except Exception as e:
+                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
+                if attempt == self.MAX_RETRIES - 1:
+                    raise
+        if original_cv is None:
+            if original_cv_result is None or original_cv_result.output is None:
+                raise RuntimeError("Failed to parse original resume after retries.")
+            original_cv = original_cv_result.output
+        self._parse_usage = usage
+        return original_cv
+
+    async def _analyze_job(self, job_analysis_prompt: str, verbose: bool) -> JobAnalysis:
+        """Analyze the job posting. Raises on hard failure."""
+        usage = RunUsage()
+        job_analysis = None
+        job_analysis_result = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                job_analysis_result = await run_agent(
+                    analyst_agent,
+                    job_analysis_prompt,
+                    verbose=verbose,
+                    agent_label="Analyst",
+                    usage=usage,
+                    usage_limits=USAGE_LIMITS,
+                )
+                if job_analysis_result.output is None:
+                    raise ValueError("Job analysis data is None")
+                if (
+                    job_analysis_result.output.job_title
+                    and job_analysis_result.output.company_name
+                ):
+                    job_analysis = job_analysis_result.output
+                    break
+                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete job data, retrying...")
+            except UnexpectedModelBehavior:
+                if _analyst_qs.last_output is not None:
+                    print("⚠️  Job Analyst quality gate exhausted — using best available output")
+                    job_analysis = _analyst_qs.last_output
+                    break
+                raise
+            except Exception as e:
+                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
+                if attempt == self.MAX_RETRIES - 1:
+                    raise
+        if job_analysis is None:
+            if job_analysis_result is None or job_analysis_result.output is None:
+                raise RuntimeError("Failed to get complete job analysis after retries.")
+            job_analysis = job_analysis_result.output
+        self._analyze_usage = usage
+        self._analyst_result = job_analysis_result  # used later for gap analysis
+        return job_analysis
+
     async def run(
         self,
         resume_text: str,
@@ -143,149 +227,61 @@ class ResumeTailorWorkflow:
 
         total_usage = RunUsage()
 
-        # --- STEP 0: PARSE ORIGINAL RESUME ---
+        # --- STEPS 0 & 1: PARSE RESUME ∥ ANALYZE JOB (concurrent on cold cache) ---
+        # Build the job-analysis prompt first (cheap, synchronous).
+        if job_content:
+            job_analysis_prompt = (
+                f"Analyze the following job posting and extract structured job data:\n\n{job_content}"
+            )
+        elif job_content_file_path:
+            job_analysis_prompt = (
+                f"Analyze the job content located at this file path {job_content_file_path} "
+                f"and extract structured job data."
+            )
+        else:
+            sys.exit("❌ No job content provided. Supply either job_content or job_content_file_path.")
+
+        self._parse_usage = RunUsage()
+        self._analyze_usage = RunUsage()
+        self._analyst_result = None
+
         self._set_stage("PARSING_RESUME")
-        original_cv_result: AgentRunResult[CV] | None = None
         original_cv: CV | None = None
 
-        if pre_parsed_cv is not None:
-            print("♻️  Using cached parsed resume (skipping AI parsing)")
-            original_cv = pre_parsed_cv
-            if debug:
-                print(
-                    f"   [Debug] Pre-parsed CV has {len(original_cv.skills)} skills, "
-                    f"{len(original_cv.experience)} work experiences"
+        try:
+            if pre_parsed_cv is not None:
+                print("♻️  Using cached parsed resume (skipping AI parsing)")
+                original_cv = pre_parsed_cv
+                self._complete_stage("PARSING_RESUME")
+                self._set_stage("ANALYZING_JOB")
+                job_analysis = await self._analyze_job(job_analysis_prompt, verbose)
+            else:
+                self._set_stage("ANALYZING_JOB")
+                original_cv, job_analysis = await asyncio.gather(
+                    self._parse_resume(resume_text, debug, verbose),
+                    self._analyze_job(job_analysis_prompt, verbose),
                 )
-        else:
-            print("🤖 Agent 0 (Parser): Parsing original resume...")
-            for attempt in range(self.MAX_RETRIES):
-                try:
-                    original_cv_result = await run_agent(
-                        resume_parser_agent,
-                        f"Parse this resume into structured format:\n\n{resume_text}",
-                        verbose=verbose,
-                        agent_label="Parser",
-                        usage=total_usage,
-                        usage_limits=USAGE_LIMITS,
-                    )
-
-                    if original_cv_result.output is None:
-                        raise ValueError("Resume parsing returned None")
-
-                    if (
-                        original_cv_result.output.full_name
-                        and original_cv_result.output.experience
-                    ):
-                        break
-
-                    print(
-                        f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete resume parse, retrying..."
-                    )
-
-                except UnexpectedModelBehavior:
-                    if _parser_qs.last_output is not None:
-                        print(
-                            "⚠️  Resume Parser quality gate exhausted — using best available output"
-                        )
-                        original_cv = _parser_qs.last_output
-                        break
-                    self._complete_stage("PARSING_RESUME", success=False)
-                    sys.exit(
-                        "❌ Resume Parser quality gate exhausted with no fallback available."
-                    )
-                except Exception as e:
-                    print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
-                    if attempt == self.MAX_RETRIES - 1:
-                        self._complete_stage("PARSING_RESUME", success=False)
-                        sys.exit("❌ Failed to parse original resume after retries.")
-
-            if original_cv is None:
-                if original_cv_result is None or original_cv_result.output is None:
-                    self._complete_stage("PARSING_RESUME", success=False)
-                    sys.exit("❌ Failed to parse original resume after retries.")
-                original_cv = original_cv_result.output
-
-        self._complete_stage("PARSING_RESUME")
-        print(f"   ✅ Resume Parsed: {original_cv.full_name}")
-        print(
-            f"   📋 Found {len(original_cv.skills)} skills, {len(original_cv.experience)} work experiences\n"
-        )
-
-        original_cv_json = original_cv.model_dump_json()
-
-        # --- STEP 1: ANALYZE JOB (Agent 1) ---
-        self._set_stage("ANALYZING_JOB")
-        print("🤖 Agent 1 (Analyst): Reading job post...")
-
-        # Determine job content source
-        if job_content:
-            job_analysis_prompt = f"Analyze the following job posting and extract structured job data:\n\n{job_content}"
-        elif job_content_file_path:
-            job_analysis_prompt = f"Analyze the job content located at this file path {job_content_file_path} and extract structured job data."
-        else:
+                self._stage_status["PARSING_RESUME"] = "done"
+        except UnexpectedModelBehavior:
+            self._complete_stage("PARSING_RESUME", success=False)
             self._complete_stage("ANALYZING_JOB", success=False)
-            sys.exit(
-                "❌ No job content provided. Supply either job_content or job_content_file_path."
-            )
+            sys.exit("❌ Parsing/analysis quality gate exhausted with no fallback available.")
+        except (RuntimeError, ValueError) as e:
+            self._complete_stage("ANALYZING_JOB", success=False)
+            sys.exit(f"❌ {e}")
 
-        job_analysis_result: AgentRunResult[JobAnalysis] | None = None
-        job_analysis: JobAnalysis | None = None
-        for attempt in range(self.MAX_RETRIES):
-            try:
-                job_analysis_result = await run_agent(
-                    analyst_agent,
-                    job_analysis_prompt,
-                    verbose=verbose,
-                    agent_label="Analyst",
-                    usage=total_usage,
-                    usage_limits=USAGE_LIMITS,
-                )
-
-                print(f"   [Debug] Job Data: {job_analysis_result.output}")
-
-                if job_analysis_result.output is None:
-                    raise ValueError("Job analysis data is None")
-
-                if (
-                    job_analysis_result.output.job_title
-                    and job_analysis_result.output.company_name
-                ):
-                    break
-
-                print(
-                    f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete job data, retrying..."
-                )
-
-            except UnexpectedModelBehavior:
-                if _analyst_qs.last_output is not None:
-                    print(
-                        "⚠️  Job Analyst quality gate exhausted — using best available output"
-                    )
-                    job_analysis = _analyst_qs.last_output
-                    break
-                self._complete_stage("ANALYZING_JOB", success=False)
-                sys.exit(
-                    "❌ Job Analyst quality gate exhausted with no fallback available."
-                )
-            except Exception as e:
-                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
-                if attempt == self.MAX_RETRIES - 1:
-                    self._complete_stage("ANALYZING_JOB", success=False)
-                    sys.exit("❌ Failed to get complete job analysis after retries.")
-
-        if job_analysis is None:
-            if job_analysis_result is None or job_analysis_result.output is None:
-                self._complete_stage("ANALYZING_JOB", success=False)
-                sys.exit("❌ Failed to get complete job analysis after retries.")
-            job_analysis = job_analysis_result.output
+        # Merge per-branch usage into the run total.
+        total_usage.incr(self._parse_usage)
+        total_usage.incr(self._analyze_usage)
 
         self._complete_stage("ANALYZING_JOB")
-        print(
-            f"   ✅ Job Analyzed: {job_analysis.job_title} at {job_analysis.company_name}"
-        )
+        print(f"   ✅ Resume Parsed: {original_cv.full_name}")
+        print(f"   📋 Found {len(original_cv.skills)} skills, {len(original_cv.experience)} work experiences\n")
+        print(f"   ✅ Job Analyzed: {job_analysis.job_title} at {job_analysis.company_name}")
         print(f"   🎯 Keywords found: {job_analysis.keywords_to_target}\n")
         self._print_pipeline_status()
 
+        original_cv_json = original_cv.model_dump_json()
         job_data_json = job_analysis.model_dump_json()
 
         # --- STEP 2: WRITE + REVIEW + AUDIT LOOP ---
@@ -575,8 +571,8 @@ Compare the two structured CVs carefully. Ensure that:
             gap_analysis = compute_gap_analysis(
                 original_cv,
                 new_cv,
-                job_analysis_result.output
-                if job_analysis_result and job_analysis_result.output
+                self._analyst_result.output
+                if self._analyst_result and self._analyst_result.output
                 else JobAnalysis(),
             )
 
