@@ -173,6 +173,48 @@ def reset_model() -> None:
 MODEL_SETTINGS: dict = {}
 USAGE_LIMITS = UsageLimits(request_limit=1000)
 
+# Quality-gate config. Advisory mode: score once, retry only when broken.
+QUALITY_GATE_ENABLED = True
+QUALITY_GATE_THRESHOLD = 6  # raise ModelRetry only when score < threshold
+
+
+def set_quality_gate(*, enabled: bool, threshold: int) -> None:
+    global QUALITY_GATE_ENABLED, QUALITY_GATE_THRESHOLD
+    QUALITY_GATE_ENABLED = enabled
+    QUALITY_GATE_THRESHOLD = threshold
+
+
+def reset_quality_gate() -> None:
+    global QUALITY_GATE_ENABLED, QUALITY_GATE_THRESHOLD
+    QUALITY_GATE_ENABLED = True
+    QUALITY_GATE_THRESHOLD = 6
+
+
+async def _score_output(role: str, label: str, payload: str, ctx) -> int | None:
+    """Run the quality gate once and emit the score. Returns the score or None
+    when the gate is disabled."""
+    if not QUALITY_GATE_ENABLED:
+        return None
+    result = await run_agent(
+        quality_gate_agent,
+        f"Role: {role}\nOutput:\n{payload}",
+        agent_label="Quality Gate",
+        usage=getattr(ctx, "usage", None),
+        usage_limits=USAGE_LIMITS,
+    )
+    score = result.output.score
+    get_active_reporter().quality_score(label, score)
+    if score < QUALITY_GATE_THRESHOLD:
+        get_active_reporter().agent_retry(
+            label, f"quality score {score} < {QUALITY_GATE_THRESHOLD}"
+        )
+        raise ModelRetry(
+            f"Score: {score}/10. Improvements needed:\n"
+            + "\n".join(f"- {i}" for i in result.output.improvements)
+        )
+    return score
+
+
 # --- Quality Gate Agent ---
 # Universal reviewer: scores any pipeline agent's output 0-10 and requests improvements.
 quality_gate_agent = Agent(
@@ -221,7 +263,7 @@ analyst_agent = Agent(
     Look for 'hidden' keywords that ATS systems might scan for.
     """,
     output_type=JobAnalysis,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 1.5: The Resume Parser ---
@@ -249,7 +291,7 @@ resume_parser_agent = Agent(
        summary, projects, publications, experience highlights, or any other field.
     """,
     output_type=CV,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 2: The Writer ---
@@ -278,7 +320,7 @@ writer_agent = Agent(
         You may rephrase the surrounding text, but the link syntax must stay intact.
     """,
     output_type=CV,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 3: The Auditor ---
@@ -332,7 +374,7 @@ auditor_agent = Agent(
     Return a detailed structured Audit Result with specific issues and actionable suggestions.
     """,
     output_type=AuditResult,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 4: The Cover Letter Writer ---
@@ -365,7 +407,7 @@ cover_letter_writer_agent = Agent(
     TONE: Professional but personable. Write like you're explaining to a friend why you're applying.
     """,
     output_type=str,  # or create a CoverLetter pydantic model if you want structured output
-    retries=5,
+    retries=2,
 )
 
 
@@ -472,45 +514,10 @@ report_agent = Agent(
 # ---------------------------------------------------------------------------
 
 
-@resume_parser_agent.output_validator
-async def _validate_resume_parser(ctx: RunContext[None], output: CV) -> CV:
-    """Score the resume parser output. Raises ModelRetry if score < 9."""
-    _parser_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Resume Parser\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
-    return output
-
-
 @auditor_agent.output_validator
 async def _validate_auditor(ctx: RunContext[None], output: AuditResult) -> AuditResult:
-    """Score the auditor output. Raises ModelRetry if score < 9."""
     _auditor_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Auditor\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
+    await _score_output("Auditor", "Auditor", output.model_dump_json(indent=2), ctx)
     return output
 
 
@@ -686,62 +693,13 @@ def validate_extraction(raw_html: str, extracted_markdown: str) -> dict:
 
 @cover_letter_writer_agent.output_validator
 async def _validate_cover_letter_writer(ctx: RunContext[None], output: str) -> str:
-    """Score the cover letter output. Raises ModelRetry if score < 9."""
     _cover_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Cover Letter Writer\nOutput:\n{output}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
-    return output
-
-
-@analyst_agent.output_validator
-async def _validate_analyst(ctx: RunContext[None], output: JobAnalysis) -> JobAnalysis:
-    """Score the job analyst output. Raises ModelRetry if score < 9."""
-    _analyst_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Job Analyst\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
+    await _score_output("Cover Letter Writer", "Cover Letter Writer", output, ctx)
     return output
 
 
 @writer_agent.output_validator
 async def _validate_writer(ctx: RunContext[None], output: CV) -> CV:
-    """Score the writer output. Raises ModelRetry if score < 9."""
     _writer_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: CV Writer\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
+    await _score_output("CV Writer", "Writer", output.model_dump_json(indent=2), ctx)
     return output

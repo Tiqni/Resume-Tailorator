@@ -1,7 +1,5 @@
 """Tests for per-agent quality gate validators."""
 
-import logging
-
 import pytest
 from pydantic_ai import models
 from pydantic_ai.exceptions import UnexpectedModelBehavior
@@ -52,44 +50,6 @@ def reset_quality_states():
     yield
     for qs in (_parser_qs, _analyst_qs, _writer_qs, _auditor_qs, _cover_qs):
         qs.last_output = None
-
-
-# ---------------------------------------------------------------------------
-# Resume Parser
-# ---------------------------------------------------------------------------
-
-
-def test_resume_parser_validator_passes_when_score_9():
-    from resume_tailorator.workflows.agents import (
-        quality_gate_agent,
-        resume_parser_agent,
-    )
-
-    with quality_gate_agent.override(model=TestModel(custom_output_args=QC_PASS)):
-        with resume_parser_agent.override(
-            model=TestModel(custom_output_args=SAMPLE_CV)
-        ):
-            result = resume_parser_agent.run_sync("Parse this resume.")
-
-    assert result.output.full_name == "Jane Smith"
-
-
-def test_resume_parser_validator_saves_last_output_when_score_low():
-    from resume_tailorator.workflows.agents import (
-        _parser_qs,
-        quality_gate_agent,
-        resume_parser_agent,
-    )
-
-    with quality_gate_agent.override(model=TestModel(custom_output_args=QC_FAIL)):
-        with resume_parser_agent.override(
-            model=TestModel(custom_output_args=SAMPLE_CV)
-        ):
-            with pytest.raises(UnexpectedModelBehavior):
-                resume_parser_agent.run_sync("Parse this resume.")
-
-    assert _parser_qs.last_output is not None
-    assert _parser_qs.last_output.full_name == "Jane Smith"
 
 
 # ---------------------------------------------------------------------------
@@ -172,47 +132,6 @@ def test_cover_letter_validator_saves_last_output_when_score_low():
 
 
 # ---------------------------------------------------------------------------
-# Job Analyst
-# ---------------------------------------------------------------------------
-
-SAMPLE_JOB = {
-    "job_title": "Backend Engineer",
-    "company_name": "TechCorp",
-    "summary": "Build scalable backend systems.",
-    "hard_skills": ["Python", "FastAPI"],
-    "soft_skills": ["Communication"],
-    "key_responsibilities": ["Build APIs", "Write tests"],
-    "keywords_to_target": ["Python", "FastAPI", "REST"],
-}
-
-
-def test_analyst_validator_passes_when_score_9():
-    from resume_tailorator.workflows.agents import analyst_agent, quality_gate_agent
-
-    with quality_gate_agent.override(model=TestModel(custom_output_args=QC_PASS)):
-        with analyst_agent.override(model=TestModel(custom_output_args=SAMPLE_JOB)):
-            result = analyst_agent.run_sync("Analyse this job posting.")
-
-    assert result.output.job_title == "Backend Engineer"
-
-
-def test_analyst_validator_saves_last_output_when_score_low():
-    from resume_tailorator.workflows.agents import (
-        _analyst_qs,
-        analyst_agent,
-        quality_gate_agent,
-    )
-
-    with quality_gate_agent.override(model=TestModel(custom_output_args=QC_FAIL)):
-        with analyst_agent.override(model=TestModel(custom_output_args=SAMPLE_JOB)):
-            with pytest.raises(UnexpectedModelBehavior):
-                analyst_agent.run_sync("Analyse this job posting.")
-
-    assert _analyst_qs.last_output is not None
-    assert _analyst_qs.last_output.job_title == "Backend Engineer"
-
-
-# ---------------------------------------------------------------------------
 # CV Writer
 # ---------------------------------------------------------------------------
 
@@ -241,77 +160,6 @@ def test_writer_validator_saves_last_output_when_score_low():
 
     assert _writer_qs.last_output is not None
     assert _writer_qs.last_output.full_name == "Jane Smith"
-
-
-# ---------------------------------------------------------------------------
-# Workflow Fallback Handling
-# ---------------------------------------------------------------------------
-
-
-def test_workflow_fallback_uses_saved_output_when_parser_retries_exhausted(caplog):
-    """Verify workflow saves output when quality gate retries trigger ModelRetry."""
-    from resume_tailorator.workflows.agents import (
-        _parser_qs,
-        quality_gate_agent,
-        resume_parser_agent,
-    )
-    from pydantic_ai.exceptions import UnexpectedModelBehavior
-
-    # Ensure clean state before test
-    _parser_qs.last_output = None
-
-    # When quality gate fails repeatedly, the validator raises ModelRetry,
-    # which propagates as UnexpectedModelBehavior. But before raising,
-    # the validator saved the agent's output to _parser_qs.last_output.
-    # This test verifies that the output was saved.
-
-    with quality_gate_agent.override(model=TestModel(custom_output_args=QC_FAIL)):
-        with resume_parser_agent.override(
-            model=TestModel(custom_output_args=SAMPLE_CV)
-        ):
-            with caplog.at_level(logging.INFO):
-                with pytest.raises(UnexpectedModelBehavior):
-                    resume_parser_agent.run_sync("Parse this resume.")
-
-    # Verify the parser agent's output was saved before the exception
-    assert _parser_qs.last_output is not None
-    # The output should match what the test parser returned
-    assert _parser_qs.last_output.full_name == "Jane Smith"
-    assert _parser_qs.last_output.contact_info == "jane@example.com"
-
-    # Cleanup after test
-    _parser_qs.last_output = None
-
-
-def test_workflow_fallback_logs_warning_when_using_saved_output():
-    """Verify quality gate validator saves last_output before exhausting retries."""
-    from resume_tailorator.workflows.agents import (
-        _parser_qs,
-        quality_gate_agent,
-        resume_parser_agent,
-    )
-    from pydantic_ai.exceptions import UnexpectedModelBehavior
-
-    # Ensure clean state before test
-    _parser_qs.last_output = None
-
-    # Setup: Quality gate will fail all retries (score < 9)
-    with quality_gate_agent.override(model=TestModel(custom_output_args=QC_FAIL)):
-        with resume_parser_agent.override(
-            model=TestModel(custom_output_args=SAMPLE_CV)
-        ):
-            # When validator exhausts retries, it raises UnexpectedModelBehavior
-            # but AFTER saving the output to _parser_qs.last_output
-            with pytest.raises(UnexpectedModelBehavior):
-                resume_parser_agent.run_sync("Parse this resume.")
-
-    # Verify the last output was saved
-    assert _parser_qs.last_output is not None
-    # This output will be used by the workflow as a fallback if needed
-    assert hasattr(_parser_qs.last_output, "full_name")
-
-    # Cleanup after test
-    _parser_qs.last_output = None
 
 
 def test_quality_state_singletons_importable():
@@ -348,3 +196,89 @@ def test_quality_state_accepts_cv_assignment():
     )
     _parser_qs.last_output = cv
     assert _parser_qs.last_output.full_name == "Test User"
+
+
+# ---------------------------------------------------------------------------
+# Advisory Gate (Task 7)
+# ---------------------------------------------------------------------------
+
+import resume_tailorator.workflows.agents as agents_mod
+from resume_tailorator.models.agents.output import CV, QualityCheckResult, WorkExperience
+from resume_tailorator.reporting.base import use_reporter
+from tests.reporting.test_base import RecordingReporter
+
+
+def _cv_for_gate() -> CV:
+    return CV(
+        full_name="Jane",
+        summary="s",
+        skills=["Python"],
+        experience=[WorkExperience(company="A", role="Eng", dates="2020", highlights=["x"])],
+        education=["BSc"],
+    )
+
+
+@pytest.mark.anyio
+async def test_advisory_gate_passes_through_above_threshold(monkeypatch):
+    """Score >= threshold: output returned, no ModelRetry."""
+    agents_mod.set_quality_gate(enabled=True, threshold=6)
+
+    async def fake_gate(*a, **k):
+        class R:
+            output = QualityCheckResult(score=7, reasoning="ok", improvements=[])
+        return R()
+
+    monkeypatch.setattr(agents_mod, "run_agent", fake_gate)
+
+    rec = RecordingReporter()
+    with use_reporter(rec):
+        ctx = type("Ctx", (), {"usage": None})()
+        out = await agents_mod._validate_writer(ctx, _cv_for_gate())
+
+    assert isinstance(out, CV)
+    assert ("quality_score", "Writer", 7) in rec.events
+    agents_mod.reset_quality_gate()
+
+
+@pytest.mark.anyio
+async def test_advisory_gate_retries_below_threshold(monkeypatch):
+    """Score < threshold: raises ModelRetry once."""
+    from pydantic_ai import ModelRetry
+
+    agents_mod.set_quality_gate(enabled=True, threshold=6)
+
+    async def fake_gate(*a, **k):
+        class R:
+            output = QualityCheckResult(score=3, reasoning="bad", improvements=["fix"])
+        return R()
+
+    monkeypatch.setattr(agents_mod, "run_agent", fake_gate)
+
+    ctx = type("Ctx", (), {"usage": None})()
+    with pytest.raises(ModelRetry):
+        await agents_mod._validate_writer(ctx, _cv_for_gate())
+    agents_mod.reset_quality_gate()
+
+
+@pytest.mark.anyio
+async def test_disabled_gate_skips_scoring(monkeypatch):
+    """Disabled gate returns output without any LLM call."""
+    agents_mod.set_quality_gate(enabled=False, threshold=6)
+    called = {"n": 0}
+
+    async def fake_gate(*a, **k):
+        called["n"] += 1
+
+    monkeypatch.setattr(agents_mod, "run_agent", fake_gate)
+
+    ctx = type("Ctx", (), {"usage": None})()
+    out = await agents_mod._validate_writer(ctx, _cv_for_gate())
+    assert isinstance(out, CV)
+    assert called["n"] == 0
+    agents_mod.reset_quality_gate()
+
+
+def test_parser_and_analyst_have_no_output_validator():
+    """Parser and Analyst no longer run a quality gate."""
+    assert not agents_mod.resume_parser_agent._output_validators
+    assert not agents_mod.analyst_agent._output_validators
