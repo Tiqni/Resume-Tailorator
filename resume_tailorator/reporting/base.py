@@ -43,8 +43,8 @@ class NullReporter:
         print(msg)
 
 
-_active_reporter: contextvars.ContextVar[ProgressReporter | None] = contextvars.ContextVar(
-    "active_reporter", default=None
+_active_reporter: contextvars.ContextVar[ProgressReporter | None] = (
+    contextvars.ContextVar("active_reporter", default=None)
 )
 
 

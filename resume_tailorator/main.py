@@ -37,7 +37,12 @@ from resume_tailorator.utils.resume_converter import (
 from resume_tailorator.reporting import LiveDashboard, VerboseReporter
 from resume_tailorator.reporting.base import use_reporter
 from resume_tailorator.workflows import ResumeTailorWorkflow
-from resume_tailorator.workflows.agents import job_scraper_agent, run_agent, set_agent_models, set_quality_gate
+from resume_tailorator.workflows.agents import (
+    job_scraper_agent,
+    run_agent,
+    set_agent_models,
+    set_quality_gate,
+)
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -328,7 +333,9 @@ async def _tailor_impl(
             _apply_fast_preset(model)
         )
 
-    reporter = VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
+    reporter = (
+        VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
+    )
 
     resume_path_expanded = os.path.expanduser(resume_path)
     if not os.path.exists(resume_path_expanded):
@@ -396,7 +403,9 @@ async def _tailor_impl(
 
     # LiveDashboard is a context manager (drives a Rich Live panel);
     # VerboseReporter is not, so fall back to a nullcontext for it.
-    dashboard_ctx = reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+    dashboard_ctx = (
+        reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+    )
     with dashboard_ctx:
         with use_reporter(reporter):
             logger.info("scraping_job_posting", extra={"url": job_url})
@@ -410,12 +419,19 @@ async def _tailor_impl(
                 if isinstance(scrape_result.output, ScrapedJobPosting):
                     job_posting_markdown = scrape_result.output.markdown
                     if not job_posting_markdown.strip():
-                        logger.error("job_posting_scraped_but_empty", extra={"url": job_url})
-                        console.print("[red]❌ Job posting scraped but content is empty[/red]")
+                        logger.error(
+                            "job_posting_scraped_but_empty", extra={"url": job_url}
+                        )
+                        console.print(
+                            "[red]❌ Job posting scraped but content is empty[/red]"
+                        )
                         raise typer.Exit(code=1)
                     logger.info(
                         "job_posting_scraped_successfully",
-                        extra={"url": job_url, "content_length": len(job_posting_markdown)},
+                        extra={
+                            "url": job_url,
+                            "content_length": len(job_posting_markdown),
+                        },
                     )
                     console.print(f"✅ Job posting scraped successfully from {job_url}")
                 else:
@@ -427,9 +443,12 @@ async def _tailor_impl(
                 raise
             except Exception as e:
                 logger.error(
-                    "job_posting_scraping_failed", extra={"url": job_url, "error": str(e)}
+                    "job_posting_scraping_failed",
+                    extra={"url": job_url, "error": str(e)},
                 )
-                console.print(f"[red]❌ Failed to scrape job posting from URL: {e}[/red]")
+                console.print(
+                    f"[red]❌ Failed to scrape job posting from URL: {e}[/red]"
+                )
                 console.print(
                     "[yellow]💡 Tip: Ensure the URL is publicly accessible and contains a valid job posting.[/yellow]"
                 )
@@ -518,14 +537,24 @@ def tailor(
         False, "--debug", "-d", help="Enable debug output and save converted resume"
     ),
     fast: bool = typer.Option(
-        False, "--fast", help="Speed preset: trimmed loops + fast models for mechanical agents"
+        False,
+        "--fast",
+        help="Speed preset: trimmed loops + fast models for mechanical agents",
     ),
-    write_attempts: int = typer.Option(2, help="Max writer attempts in the write/audit loop"),
-    review_iterations: int = typer.Option(1, help="Max reviewer iterations per write attempt"),
+    write_attempts: int = typer.Option(
+        2, help="Max writer attempts in the write/audit loop"
+    ),
+    review_iterations: int = typer.Option(
+        1, help="Max reviewer iterations per write attempt"
+    ),
     quality_gate: bool = typer.Option(
-        True, "--quality-gate/--no-quality-gate", help="Enable the advisory quality gate"
+        True,
+        "--quality-gate/--no-quality-gate",
+        help="Enable the advisory quality gate",
     ),
-    gate_threshold: int = typer.Option(6, help="Re-run an agent only when its quality score is below this"),
+    gate_threshold: int = typer.Option(
+        6, help="Re-run an agent only when its quality score is below this"
+    ),
 ) -> int:
     """Run the full resume tailoring workflow."""
     return asyncio.run(
@@ -571,7 +600,9 @@ async def _re_tailor_impl(
             _apply_fast_preset(model)
         )
 
-    reporter = VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
+    reporter = (
+        VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
+    )
 
     repo = SQLiteResumeMemoryRepository()
     parser = PydanticAIResumeParser()
@@ -659,7 +690,9 @@ async def _re_tailor_impl(
 
     # LiveDashboard is a context manager (drives a Rich Live panel);
     # VerboseReporter is not, so fall back to a nullcontext for it.
-    dashboard_ctx = reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+    dashboard_ctx = (
+        reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+    )
     with dashboard_ctx:
         with use_reporter(reporter):
             exit_code, resume_path_out, report_path_out, result = await _run_workflow(
@@ -738,14 +771,24 @@ def re_tailor(
         False, "--debug", "-d", help="Enable debug output and save converted resume"
     ),
     fast: bool = typer.Option(
-        False, "--fast", help="Speed preset: trimmed loops + fast models for mechanical agents"
+        False,
+        "--fast",
+        help="Speed preset: trimmed loops + fast models for mechanical agents",
     ),
-    write_attempts: int = typer.Option(2, help="Max writer attempts in the write/audit loop"),
-    review_iterations: int = typer.Option(1, help="Max reviewer iterations per write attempt"),
+    write_attempts: int = typer.Option(
+        2, help="Max writer attempts in the write/audit loop"
+    ),
+    review_iterations: int = typer.Option(
+        1, help="Max reviewer iterations per write attempt"
+    ),
     quality_gate: bool = typer.Option(
-        True, "--quality-gate/--no-quality-gate", help="Enable the advisory quality gate"
+        True,
+        "--quality-gate/--no-quality-gate",
+        help="Enable the advisory quality gate",
     ),
-    gate_threshold: int = typer.Option(6, help="Re-run an agent only when its quality score is below this"),
+    gate_threshold: int = typer.Option(
+        6, help="Re-run an agent only when its quality score is below this"
+    ),
 ) -> int:
     """Re-run tailoring with recommendations from a prior audit."""
     return asyncio.run(

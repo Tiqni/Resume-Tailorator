@@ -46,7 +46,9 @@ class TestRunAgentNonStreaming:
         agent = MagicMock(spec=Agent)
         agent.run = AsyncMock()
         with use_reporter(RecordingReporter()):
-            await run_agent(agent, "test", agent_label="A", usage="u", usage_limits="ul")
+            await run_agent(
+                agent, "test", agent_label="A", usage="u", usage_limits="ul"
+            )
         agent.run.assert_awaited_once_with("test", usage="u", usage_limits="ul")
 
 

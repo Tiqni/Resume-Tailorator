@@ -5,7 +5,11 @@ import resume_tailorator.workflows.agents as agents_mod
 from pydantic_ai import models
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.models.test import TestModel
-from resume_tailorator.models.agents.output import CV, QualityCheckResult, WorkExperience
+from resume_tailorator.models.agents.output import (
+    CV,
+    QualityCheckResult,
+    WorkExperience,
+)
 from resume_tailorator.reporting.base import use_reporter
 from tests.reporting.test_base import RecordingReporter
 
@@ -212,7 +216,9 @@ def _cv_for_gate() -> CV:
         full_name="Jane",
         summary="s",
         skills=["Python"],
-        experience=[WorkExperience(company="A", role="Eng", dates="2020", highlights=["x"])],
+        experience=[
+            WorkExperience(company="A", role="Eng", dates="2020", highlights=["x"])
+        ],
         education=["BSc"],
     )
 
@@ -225,6 +231,7 @@ async def test_advisory_gate_passes_through_above_threshold(monkeypatch):
     async def fake_gate(*a, **k):
         class R:
             output = QualityCheckResult(score=7, reasoning="ok", improvements=[])
+
         return R()
 
     monkeypatch.setattr(agents_mod, "run_agent", fake_gate)
@@ -249,6 +256,7 @@ async def test_advisory_gate_retries_below_threshold(monkeypatch):
     async def fake_gate(*a, **k):
         class R:
             output = QualityCheckResult(score=3, reasoning="bad", improvements=["fix"])
+
         return R()
 
     monkeypatch.setattr(agents_mod, "run_agent", fake_gate)

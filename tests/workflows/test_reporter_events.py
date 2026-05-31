@@ -36,16 +36,31 @@ async def test_workflow_emits_stage_events(monkeypatch, sample_cv):
 
     async def run_reviewer(*a, **k):
         return DummyRunResult(
-            ReviewResult(quality_score=9, needs_improvement=False, specific_suggestions=[], strengths=["ok"])
+            ReviewResult(
+                quality_score=9,
+                needs_improvement=False,
+                specific_suggestions=[],
+                strengths=["ok"],
+            )
         )
 
     async def run_auditor(*a, **k):
         return DummyRunResult(
-            AuditResult(passed=True, hallucination_score=0, ai_cliche_score=0, issues=[], feedback_summary="ok")
+            AuditResult(
+                passed=True,
+                hallucination_score=0,
+                ai_cliche_score=0,
+                issues=[],
+                feedback_summary="ok",
+            )
         )
 
     async def run_report(*a, **k):
-        from resume_tailorator.models.agents.output import FinalReport, CVDiff, GapAnalysis
+        from resume_tailorator.models.agents.output import (
+            FinalReport,
+            CVDiff,
+            GapAnalysis,
+        )
 
         return DummyRunResult(
             FinalReport(
@@ -63,11 +78,21 @@ async def test_workflow_emits_stage_events(monkeypatch, sample_cv):
             )
         )
 
-    monkeypatch.setattr("resume_tailorator.workflows.agents.analyst_agent.run", run_analyst)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.writer_agent.run", run_writer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.auditor_agent.run", run_auditor)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.report_agent.run", run_report)
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.analyst_agent.run", run_analyst
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.writer_agent.run", run_writer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.auditor_agent.run", run_auditor
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.report_agent.run", run_report
+    )
 
     rec = RecordingReporter()
     await ResumeTailorWorkflow().run(

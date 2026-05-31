@@ -51,20 +51,43 @@ async def test_parser_and_analyst_overlap(monkeypatch, sample_cv):
 
     async def run_reviewer(*a, **k):
         return DummyRunResult(
-            ReviewResult(quality_score=9, needs_improvement=False, specific_suggestions=[], strengths=["ok"])
+            ReviewResult(
+                quality_score=9,
+                needs_improvement=False,
+                specific_suggestions=[],
+                strengths=["ok"],
+            )
         )
 
     async def run_auditor(*a, **k):
         return DummyRunResult(
-            AuditResult(passed=True, hallucination_score=0, ai_cliche_score=0, issues=[], feedback_summary="ok")
+            AuditResult(
+                passed=True,
+                hallucination_score=0,
+                ai_cliche_score=0,
+                issues=[],
+                feedback_summary="ok",
+            )
         )
 
-    monkeypatch.setattr("resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.analyst_agent.run", run_analyst)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.writer_agent.run", run_writer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.auditor_agent.run", run_auditor)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.report_agent.run", run_auditor)
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.analyst_agent.run", run_analyst
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.writer_agent.run", run_writer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.auditor_agent.run", run_auditor
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.report_agent.run", run_auditor
+    )
 
     rec = RecordingReporter()
     result = await ResumeTailorWorkflow().run(
@@ -75,7 +98,11 @@ async def test_parser_and_analyst_overlap(monkeypatch, sample_cv):
 
     assert in_flight["max"] == 2  # parser and analyst overlapped
     assert result.company_name == "Acme"
-    parse_dones = [e for e in rec.events if e[0] == "stage_done" and e[1] == "PARSING_RESUME"]
+    parse_dones = [
+        e for e in rec.events if e[0] == "stage_done" and e[1] == "PARSING_RESUME"
+    ]
     assert len(parse_dones) == 1  # completed exactly once, no premature/double emit
-    parse_starts = [e for e in rec.events if e[0] == "stage_start" and e[1] == "PARSING_RESUME"]
+    parse_starts = [
+        e for e in rec.events if e[0] == "stage_start" and e[1] == "PARSING_RESUME"
+    ]
     assert len(parse_starts) == 1

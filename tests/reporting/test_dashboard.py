@@ -100,7 +100,9 @@ def test_tracks_retry_and_score_counts():
 
 
 def test_render_table_lists_all_stages():
-    dash = LiveDashboard(console=_console(False), stages=["PARSING_RESUME", "WRITING_CV"])
+    dash = LiveDashboard(
+        console=_console(False), stages=["PARSING_RESUME", "WRITING_CV"]
+    )
     table = dash.render()  # returns a Rich renderable; should not raise
     console = _console(False)
     console.print(table)

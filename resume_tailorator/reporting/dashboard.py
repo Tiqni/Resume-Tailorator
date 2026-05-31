@@ -151,7 +151,9 @@ class LiveDashboard:
             if stage in self.started_at:
                 self.elapsed[stage] = time.monotonic() - self.started_at[stage]
         icon = "✅" if success else "❌"
-        self._log(f"{icon} {_LABELS.get(stage, stage)}: {'DONE' if success else 'FAILED'}")
+        self._log(
+            f"{icon} {_LABELS.get(stage, stage)}: {'DONE' if success else 'FAILED'}"
+        )
         self._refresh()
 
     def agent_start(self, label: str, prompt: str) -> None:
