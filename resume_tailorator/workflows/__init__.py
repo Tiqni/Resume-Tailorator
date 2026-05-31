@@ -69,30 +69,6 @@ class ResumeTailorWorkflow:
             self._stage_status[stage] = "failed" if not success else "done"
         self._reporter.stage_done(stage, success=success)
 
-    def _print_pipeline_status(self) -> None:
-        """Print current pipeline status."""
-        self._reporter.log("\n" + "=" * 50)
-        self._reporter.log("📊 PIPELINE STATUS")
-        self._reporter.log("=" * 50)
-        icons = {"pending": "⏳", "running": "🔄", "done": "✅", "failed": "❌"}
-        labels = {
-            "PARSING_RESUME": "Parse Resume",
-            "ANALYZING_JOB": "Analyze Job",
-            "WRITING_CV": "Write CV",
-            "REVIEWING_CV": "Review CV",
-            "AUDITING_CV": "Audit CV",
-            "GENERATING_REPORT": "Generate Report",
-        }
-        for stage in self.STAGES:
-            status = self._stage_status[stage]
-            icon = icons.get(status, "?")
-            label = labels.get(stage, stage)
-            current_marker = (
-                "→" if (stage == self._current_stage and status == "running") else " "
-            )
-            self._reporter.log(f"  {current_marker}{icon} {label}: {status.upper()}")
-        self._reporter.log("=" * 50 + "\n")
-
     async def _parse_resume(self, resume_text: str, debug: bool, verbose: bool) -> CV:
         """Parse the original resume into a CV. Raises on hard failure."""
         usage = RunUsage()
@@ -228,7 +204,6 @@ class ResumeTailorWorkflow:
             self._reporter.log(f"🤖 Using model: {get_model()}")
 
         self._reporter.log("🚀 STARTING MULTI-AGENT PIPELINE\n")
-        self._print_pipeline_status()
 
         total_usage = RunUsage()
 
@@ -290,7 +265,6 @@ class ResumeTailorWorkflow:
         self._reporter.log(f"   📋 Found {len(original_cv.skills)} skills, {len(original_cv.experience)} work experiences\n")
         self._reporter.log(f"   ✅ Job Analyzed: {job_analysis.job_title} at {job_analysis.company_name}")
         self._reporter.log(f"   🎯 Keywords found: {job_analysis.keywords_to_target}\n")
-        self._print_pipeline_status()
 
         original_cv_json = original_cv.model_dump_json()
         job_data_json = job_analysis.model_dump_json()
@@ -628,9 +602,7 @@ Job Analysis: {job_data_json}
             self._complete_stage("GENERATING_REPORT", success=False)
             self._reporter.log(f"   ⚠️ Report generation failed: {e}\n")
 
-        # Print final pipeline status
         self._stage_status["GENERATING_REPORT"] = "done" if final_report else "failed"
-        self._print_pipeline_status()
 
         # Build audit_report dict for backward compatibility
         audit_report_dict: dict = {

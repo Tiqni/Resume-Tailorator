@@ -85,3 +85,7 @@ async def test_workflow_emits_stage_events(monkeypatch, sample_cv):
     assert "GENERATING_REPORT" in starts
     assert any(e[0] == "stage_done" for e in rec.events)
     assert any(e[0] == "log" for e in rec.events)
+    # The old ASCII "PIPELINE STATUS" banner is replaced by the live table; it
+    # must no longer be emitted (it duplicated the dashboard).
+    log_text = " ".join(e[1] for e in rec.events if e[0] == "log")
+    assert "PIPELINE STATUS" not in log_text
