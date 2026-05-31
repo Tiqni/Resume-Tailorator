@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -29,56 +30,82 @@ from resume_tailorator.tools.playwright import read_job_content_file
 from resume_tailorator.tools.job_scraper_helpers import (
     detect_placeholder_content,
 )
+from resume_tailorator.reporting.base import get_active_reporter
 
 logger = logging.getLogger(__name__)
 _console = Console()
+
+
+def _safe_report(fn: Any, *args: Any, **kwargs: Any) -> None:
+    """Invoke a best-effort reporter method, swallowing display errors.
+
+    ProgressReporter methods are documented as best-effort: a buggy or custom
+    reporter must never abort the agent run or the pipeline. Cancellation still
+    propagates.
+    """
+    try:
+        fn(*args, **kwargs)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        raise
+    except Exception:
+        logger.debug("reporter_call_failed", exc_info=True)
 
 
 async def run_agent(
     agent: Agent,
     prompt: str,
     *,
-    verbose: bool = False,
+    verbose: bool = False,  # retained for call-site compatibility; reporter drives streaming
     agent_label: str = "",
     usage: Usage | None = None,
     usage_limits: UsageLimits | None = None,
+    model: str | None = None,
 ) -> AgentRunResult:
-    """Run an agent, optionally streaming output in verbose mode."""
-    if not verbose:
-        return await agent.run(prompt, usage=usage, usage_limits=usage_limits)
+    """Run an agent, emitting lifecycle/token events to the active reporter."""
+    reporter = get_active_reporter()
 
-    if agent_label:
-        _console.print(f"\n[dim yellow]♨️  [{agent_label}][/dim yellow]")
+    run_kwargs: dict[str, Any] = {"usage": usage, "usage_limits": usage_limits}
+    resolved = model if model is not None else resolve_model(agent_label)
+    if resolved is not None:
+        run_kwargs["model"] = resolved
 
-    _console.print(
-        f"[dim italic]Prompt: {prompt[:300]}{'...' if len(prompt) > 300 else ''}[/dim italic]"
-    )
+    _safe_report(reporter.agent_start, agent_label, prompt)
+    start = time.monotonic()
+
+    try:
+        wants_tokens = reporter.wants_tokens
+    except Exception:
+        logger.debug("reporter_call_failed", exc_info=True)
+        wants_tokens = False
+
+    if not wants_tokens:
+        result = await agent.run(prompt, **run_kwargs)
+        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
+        return result
 
     try:
         result = None
-        async for event in agent.run_stream_events(
-            prompt, usage=usage, usage_limits=usage_limits
-        ):
+        async for event in agent.run_stream_events(prompt, **run_kwargs):
             if isinstance(event, AgentRunResultEvent):
                 result = event.result
             elif isinstance(event, PartDeltaEvent):
                 if isinstance(event.delta, TextPartDelta):
-                    _console.print(
-                        event.delta.content_delta, end="", style="green", markup=False
+                    _safe_report(
+                        reporter.token, agent_label, event.delta.content_delta, "output"
                     )
                 elif isinstance(event.delta, ThinkingPartDelta):
-                    _console.print(
+                    _safe_report(
+                        reporter.token,
+                        agent_label,
                         event.delta.content_delta,
-                        end="",
-                        style="dim cyan",
-                        markup=False,
+                        "thinking",
                     )
 
-        _console.print()
+        if result is None:
+            result = await agent.run(prompt, **run_kwargs)
 
-        if result is not None:
-            return result
-        return await agent.run(prompt, usage=usage, usage_limits=usage_limits)
+        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
+        return result
 
     except (KeyboardInterrupt, asyncio.CancelledError):
         raise
@@ -90,10 +117,12 @@ async def run_agent(
             extra={"agent_label": agent_label},
             exc_info=True,
         )
-        _console.print(
-            f"[yellow]⚠️  Stream interrupted for [{agent_label}], falling back to non-streaming...[/yellow]"
+        _safe_report(
+            reporter.note, f"Stream interrupted for [{agent_label}], falling back..."
         )
-        return await agent.run(prompt, usage=usage, usage_limits=usage_limits)
+        result = await agent.run(prompt, **run_kwargs)
+        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
+        return result
 
 
 class _QualityState(BaseModel):
@@ -111,6 +140,52 @@ _cover_qs = _QualityState()
 
 MODEL_NAME = "openai:gpt-5-mini"
 _original_model = MODEL_NAME
+
+# Per-agent model tiers. Defaults equal MODEL_NAME (no behavior change until
+# configured via set_agent_models()).
+FAST_MODEL = MODEL_NAME
+STRONG_MODEL = MODEL_NAME
+_AGENT_TIERS = {
+    "Parser": "fast",
+    "Analyst": "fast",
+    "Quality Gate": "fast",
+    "Reviewer": "fast",
+    "Writer": "strong",
+    "Writer (refine)": "strong",
+    "Auditor": "strong",
+    "Report": "strong",
+    "Cover Letter Writer": "strong",
+    "Scraper": "strong",  # job_scraper_agent; wired in a later task
+}
+
+
+def set_agent_models(*, fast: str | None = None, strong: str | None = None) -> None:
+    """Override the fast/strong model tiers used by run_agent."""
+    global FAST_MODEL, STRONG_MODEL
+    if fast is not None:
+        FAST_MODEL = fast
+    if strong is not None:
+        STRONG_MODEL = strong
+
+
+def reset_agent_models() -> None:
+    """Reset both tiers to the import-time default model (_original_model)."""
+    global FAST_MODEL, STRONG_MODEL
+    FAST_MODEL = _original_model
+    STRONG_MODEL = _original_model
+
+
+def agent_models_configured() -> bool:
+    """True once set_agent_models() has moved a tier off the import-time default."""
+    return not (FAST_MODEL == STRONG_MODEL == _original_model)
+
+
+def resolve_model(agent_label: str) -> str | None:
+    """Resolve the model for an agent label, or None to use the agent default."""
+    if not agent_models_configured():
+        return None  # unconfigured: let each agent use its own model
+    tier = _AGENT_TIERS.get(agent_label, "strong")
+    return FAST_MODEL if tier == "fast" else STRONG_MODEL
 
 
 def get_model() -> str:
@@ -133,6 +208,48 @@ def reset_model() -> None:
 MODEL_SETTINGS: dict = {}
 USAGE_LIMITS = UsageLimits(request_limit=1000)
 
+# Quality-gate config. Advisory mode: score once, retry only when broken.
+QUALITY_GATE_ENABLED = True
+QUALITY_GATE_THRESHOLD = 6  # raise ModelRetry only when score < threshold
+
+
+def set_quality_gate(*, enabled: bool, threshold: int) -> None:
+    global QUALITY_GATE_ENABLED, QUALITY_GATE_THRESHOLD
+    QUALITY_GATE_ENABLED = enabled
+    QUALITY_GATE_THRESHOLD = threshold
+
+
+def reset_quality_gate() -> None:
+    global QUALITY_GATE_ENABLED, QUALITY_GATE_THRESHOLD
+    QUALITY_GATE_ENABLED = True
+    QUALITY_GATE_THRESHOLD = 6
+
+
+async def _score_output(role: str, label: str, payload: str, ctx) -> int | None:
+    """Run the quality gate once and emit the score. Returns the score or None
+    when the gate is disabled."""
+    if not QUALITY_GATE_ENABLED:
+        return None
+    result = await run_agent(
+        quality_gate_agent,
+        f"Role: {role}\nOutput:\n{payload}",
+        agent_label="Quality Gate",
+        usage=getattr(ctx, "usage", None),
+        usage_limits=USAGE_LIMITS,
+    )
+    score = result.output.score
+    get_active_reporter().quality_score(label, score)
+    if score < QUALITY_GATE_THRESHOLD:
+        get_active_reporter().agent_retry(
+            label, f"quality score {score} < {QUALITY_GATE_THRESHOLD}"
+        )
+        raise ModelRetry(
+            f"Score: {score}/10. Improvements needed:\n"
+            + "\n".join(f"- {i}" for i in result.output.improvements)
+        )
+    return score
+
+
 # --- Quality Gate Agent ---
 # Universal reviewer: scores any pipeline agent's output 0-10 and requests improvements.
 quality_gate_agent = Agent(
@@ -146,9 +263,10 @@ Scoring criteria by role:
   - CV Writer: no hallucinations, ATS keywords incorporated naturally, human tone, no clichés
   - Auditor: thorough hallucination check, specific cliché identification, actionable feedback
   - Cover Letter Writer: authentic human voice, no AI clichés, specific to the role, concise
-A score of 9 or 10 means ready to proceed.
-A score below 9 means the output must be improved before the pipeline continues.
-Always provide a reasoning and list specific improvements when score < 9.""",
+Score the output honestly from 0 to 10 based on the criteria above.
+A score of 9 or 10 means excellent; 6 to 8 means acceptable; below 6 means the
+output is broken and must be regenerated.
+Always provide reasoning, and list specific improvements whenever the score is below 9.""",
     output_type=QualityCheckResult,
     retries=2,
 )
@@ -181,7 +299,7 @@ analyst_agent = Agent(
     Look for 'hidden' keywords that ATS systems might scan for.
     """,
     output_type=JobAnalysis,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 1.5: The Resume Parser ---
@@ -209,7 +327,7 @@ resume_parser_agent = Agent(
        summary, projects, publications, experience highlights, or any other field.
     """,
     output_type=CV,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 2: The Writer ---
@@ -238,7 +356,7 @@ writer_agent = Agent(
         You may rephrase the surrounding text, but the link syntax must stay intact.
     """,
     output_type=CV,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 3: The Auditor ---
@@ -292,7 +410,7 @@ auditor_agent = Agent(
     Return a detailed structured Audit Result with specific issues and actionable suggestions.
     """,
     output_type=AuditResult,
-    retries=5,
+    retries=2,
 )
 
 # --- Agent 4: The Cover Letter Writer ---
@@ -325,7 +443,7 @@ cover_letter_writer_agent = Agent(
     TONE: Professional but personable. Write like you're explaining to a friend why you're applying.
     """,
     output_type=str,  # or create a CoverLetter pydantic model if you want structured output
-    retries=5,
+    retries=2,
 )
 
 
@@ -432,45 +550,10 @@ report_agent = Agent(
 # ---------------------------------------------------------------------------
 
 
-@resume_parser_agent.output_validator
-async def _validate_resume_parser(ctx: RunContext[None], output: CV) -> CV:
-    """Score the resume parser output. Raises ModelRetry if score < 9."""
-    _parser_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Resume Parser\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
-    return output
-
-
 @auditor_agent.output_validator
 async def _validate_auditor(ctx: RunContext[None], output: AuditResult) -> AuditResult:
-    """Score the auditor output. Raises ModelRetry if score < 9."""
     _auditor_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Auditor\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
+    await _score_output("Auditor", "Auditor", output.model_dump_json(indent=2), ctx)
     return output
 
 
@@ -646,62 +729,13 @@ def validate_extraction(raw_html: str, extracted_markdown: str) -> dict:
 
 @cover_letter_writer_agent.output_validator
 async def _validate_cover_letter_writer(ctx: RunContext[None], output: str) -> str:
-    """Score the cover letter output. Raises ModelRetry if score < 9."""
     _cover_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Cover Letter Writer\nOutput:\n{output}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
-    return output
-
-
-@analyst_agent.output_validator
-async def _validate_analyst(ctx: RunContext[None], output: JobAnalysis) -> JobAnalysis:
-    """Score the job analyst output. Raises ModelRetry if score < 9."""
-    _analyst_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: Job Analyst\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
+    await _score_output("Cover Letter Writer", "Cover Letter Writer", output, ctx)
     return output
 
 
 @writer_agent.output_validator
 async def _validate_writer(ctx: RunContext[None], output: CV) -> CV:
-    """Score the writer output. Raises ModelRetry if score < 9."""
     _writer_qs.last_output = output
-    result = await run_agent(
-        quality_gate_agent,
-        f"Role: CV Writer\nOutput:\n{output.model_dump_json(indent=2)}",
-        verbose=False,
-        agent_label="Quality Gate",
-        usage=ctx.usage,
-        usage_limits=USAGE_LIMITS,
-    )
-    check = result.output
-    if check.score < 9:
-        raise ModelRetry(
-            f"Score: {check.score}/10. Improvements needed:\n"
-            + "\n".join(f"- {i}" for i in check.improvements)
-        )
+    await _score_output("CV Writer", "Writer", output.model_dump_json(indent=2), ctx)
     return output

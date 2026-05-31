@@ -1,12 +1,17 @@
+import asyncio
 import sys
 from datetime import datetime, timezone
 
-from pydantic_ai import AgentRunResult
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.usage import RunUsage
 
 from resume_tailorator.models.agents.output import CV, CVDiff, FinalReport, JobAnalysis
 from resume_tailorator.models.workflow import ResumeTailorResult
+from resume_tailorator.reporting.base import (
+    NullReporter,
+    ProgressReporter,
+    use_reporter,
+)
 from resume_tailorator.utils.cv_diff import compute_cv_diff, compute_gap_analysis
 from resume_tailorator.workflows.agents import (
     USAGE_LIMITS,
@@ -21,15 +26,17 @@ from resume_tailorator.workflows.agents import (
     reviewer_agent,
     run_agent,
     writer_agent,
+    agent_models_configured,
     get_model,
     set_model,
+    set_agent_models,
 )
 
 
 class ResumeTailorWorkflow:
     MAX_RETRIES = 3
-    max_review_iterations = 3
-    max_write_attempts = 3
+    max_review_iterations = 1
+    max_write_attempts = 2
 
     # Pipeline stages for status tracking
     STAGES = [
@@ -41,47 +48,130 @@ class ResumeTailorWorkflow:
         "GENERATING_REPORT",
     ]
 
-    def __init__(self):
+    def __init__(
+        self, write_attempts: int | None = None, review_iterations: int | None = None
+    ):
         self._current_stage: str | None = None
         self._stage_status: dict[str, str] = {stage: "pending" for stage in self.STAGES}
+        self._reporter: ProgressReporter = NullReporter()
+        if write_attempts is not None:
+            self.max_write_attempts = write_attempts
+        if review_iterations is not None:
+            self.max_review_iterations = review_iterations
 
     def _set_stage(self, stage: str) -> None:
         """Mark current stage as running, previous as done."""
         if self._current_stage and self._current_stage in self._stage_status:
             if self._stage_status[self._current_stage] == "running":
                 self._stage_status[self._current_stage] = "done"
+                self._reporter.stage_done(self._current_stage, success=True)
         self._current_stage = stage
         if stage in self._stage_status:
             self._stage_status[stage] = "running"
+        self._reporter.stage_start(stage)
 
     def _complete_stage(self, stage: str, success: bool = True) -> None:
         """Mark a stage as completed or failed."""
         if stage in self._stage_status:
             self._stage_status[stage] = "failed" if not success else "done"
+        self._reporter.stage_done(stage, success=success)
 
-    def _print_pipeline_status(self) -> None:
-        """Print current pipeline status."""
-        print("\n" + "=" * 50)
-        print("📊 PIPELINE STATUS")
-        print("=" * 50)
-        icons = {"pending": "⏳", "running": "🔄", "done": "✅", "failed": "❌"}
-        labels = {
-            "PARSING_RESUME": "Parse Resume",
-            "ANALYZING_JOB": "Analyze Job",
-            "WRITING_CV": "Write CV",
-            "REVIEWING_CV": "Review CV",
-            "AUDITING_CV": "Audit CV",
-            "GENERATING_REPORT": "Generate Report",
-        }
-        for stage in self.STAGES:
-            status = self._stage_status[stage]
-            icon = icons.get(status, "?")
-            label = labels.get(stage, stage)
-            current_marker = (
-                "→" if (stage == self._current_stage and status == "running") else " "
-            )
-            print(f"  {current_marker}{icon} {label}: {status.upper()}")
-        print("=" * 50 + "\n")
+    async def _parse_resume(self, resume_text: str, debug: bool, verbose: bool) -> CV:
+        """Parse the original resume into a CV. Raises on hard failure."""
+        usage = RunUsage()
+        original_cv: CV | None = None
+        original_cv_result = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                original_cv_result = await run_agent(
+                    resume_parser_agent,
+                    f"Parse this resume into structured format:\n\n{resume_text}",
+                    verbose=verbose,
+                    agent_label="Parser",
+                    usage=usage,
+                    usage_limits=USAGE_LIMITS,
+                )
+                if original_cv_result.output is None:
+                    raise ValueError("Resume parsing returned None")
+                if (
+                    original_cv_result.output.full_name
+                    and original_cv_result.output.experience
+                ):
+                    original_cv = original_cv_result.output
+                    break
+                self._reporter.log(
+                    f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete resume parse, retrying..."
+                )
+            except UnexpectedModelBehavior:
+                if _parser_qs.last_output is not None:
+                    self._reporter.log(
+                        "⚠️  Resume Parser failed — using best available output"
+                    )
+                    original_cv = _parser_qs.last_output
+                    break
+                raise
+            except Exception as e:
+                self._reporter.log(
+                    f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}"
+                )
+                if attempt == self.MAX_RETRIES - 1:
+                    raise
+        if original_cv is None:
+            if original_cv_result is None or original_cv_result.output is None:
+                raise RuntimeError("Failed to parse original resume after retries.")
+            original_cv = original_cv_result.output
+        self._parse_usage = usage
+        return original_cv
+
+    async def _analyze_job(
+        self, job_analysis_prompt: str, verbose: bool
+    ) -> JobAnalysis:
+        """Analyze the job posting. Raises on hard failure."""
+        usage = RunUsage()
+        job_analysis = None
+        job_analysis_result = None
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                job_analysis_result = await run_agent(
+                    analyst_agent,
+                    job_analysis_prompt,
+                    verbose=verbose,
+                    agent_label="Analyst",
+                    usage=usage,
+                    usage_limits=USAGE_LIMITS,
+                )
+                if job_analysis_result.output is None:
+                    raise ValueError("Job analysis data is None")
+                if (
+                    job_analysis_result.output.job_title
+                    and job_analysis_result.output.company_name
+                ):
+                    job_analysis = job_analysis_result.output
+                    break
+                self._reporter.log(
+                    f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete job data, retrying..."
+                )
+            except UnexpectedModelBehavior:
+                if _analyst_qs.last_output is not None:
+                    self._reporter.log(
+                        "⚠️  Job Analyst failed — using best available output"
+                    )
+                    job_analysis = _analyst_qs.last_output
+                    break
+                raise
+            except Exception as e:
+                self._reporter.log(
+                    f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}"
+                )
+                if attempt == self.MAX_RETRIES - 1:
+                    raise
+        if job_analysis is None:
+            if job_analysis_result is None or job_analysis_result.output is None:
+                raise RuntimeError("Failed to get complete job analysis after retries.")
+            job_analysis = job_analysis_result.output
+        self._analyze_usage = usage
+        self._analyst_result = job_analysis_result  # used later for gap analysis
+        return job_analysis
 
     async def run(
         self,
@@ -93,177 +183,128 @@ class ResumeTailorWorkflow:
         pre_parsed_cv: CV | None = None,
         debug: bool = False,
         verbose: bool = False,
+        reporter: ProgressReporter | None = None,
     ) -> ResumeTailorResult:
         """Run the resume tailoring workflow.
 
-        Args:
-            resume_text: The resume content as text.
-            job_content_file_path: Path to job posting file (legacy, file-based).
-            job_content: Job posting markdown content (new, direct content).
-            model: AI model override (e.g., openai:gpt-4o-mini).
-
-        Note:
-            If both job_content_file_path and job_content are provided, job_content takes priority.
+        Installs `reporter` (or a NullReporter) as the active progress reporter
+        for the duration of the run, then delegates to _run_impl.
         """
+        self._reporter = reporter or NullReporter()
+        try:
+            with use_reporter(self._reporter):
+                return await self._run_impl(
+                    resume_text,
+                    job_content_file_path=job_content_file_path,
+                    job_content=job_content,
+                    model=model,
+                    pre_parsed_cv=pre_parsed_cv,
+                    debug=debug,
+                    verbose=verbose,
+                )
+        finally:
+            self._reporter = NullReporter()
+
+    async def _run_impl(
+        self,
+        resume_text: str,
+        job_content_file_path: str | None = None,
+        job_content: str | None = None,
+        model: str | None = None,
+        *,
+        pre_parsed_cv: CV | None = None,
+        debug: bool = False,
+        verbose: bool = False,
+    ) -> ResumeTailorResult:
         # Override model if specified
         if model:
             set_model(model)
-            print(f"🤖 Using model: {model}")
+            # A bare --model override forces every tier to that model — but only
+            # when tiers are still unconfigured. If --fast (or an explicit
+            # set_agent_models call) already configured tiers, respect them so
+            # mechanical agents keep their fast tier.
+            if not agent_models_configured():
+                set_agent_models(fast=model, strong=model)
+            self._reporter.log(f"🤖 Using model: {model}")
         else:
-            print(f"🤖 Using model: {get_model()}")
+            self._reporter.log(f"🤖 Using model: {get_model()}")
 
-        print("🚀 STARTING MULTI-AGENT PIPELINE\n")
-        self._print_pipeline_status()
+        self._reporter.log("🚀 STARTING MULTI-AGENT PIPELINE\n")
 
         total_usage = RunUsage()
 
-        # --- STEP 0: PARSE ORIGINAL RESUME ---
-        self._set_stage("PARSING_RESUME")
-        original_cv_result: AgentRunResult[CV] | None = None
-        original_cv: CV | None = None
-
-        if pre_parsed_cv is not None:
-            print("♻️  Using cached parsed resume (skipping AI parsing)")
-            original_cv = pre_parsed_cv
-            if debug:
-                print(
-                    f"   [Debug] Pre-parsed CV has {len(original_cv.skills)} skills, "
-                    f"{len(original_cv.experience)} work experiences"
-                )
-        else:
-            print("🤖 Agent 0 (Parser): Parsing original resume...")
-            for attempt in range(self.MAX_RETRIES):
-                try:
-                    original_cv_result = await run_agent(
-                        resume_parser_agent,
-                        f"Parse this resume into structured format:\n\n{resume_text}",
-                        verbose=verbose,
-                        agent_label="Parser",
-                        usage=total_usage,
-                        usage_limits=USAGE_LIMITS,
-                    )
-
-                    if original_cv_result.output is None:
-                        raise ValueError("Resume parsing returned None")
-
-                    if (
-                        original_cv_result.output.full_name
-                        and original_cv_result.output.experience
-                    ):
-                        break
-
-                    print(
-                        f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete resume parse, retrying..."
-                    )
-
-                except UnexpectedModelBehavior:
-                    if _parser_qs.last_output is not None:
-                        print(
-                            "⚠️  Resume Parser quality gate exhausted — using best available output"
-                        )
-                        original_cv = _parser_qs.last_output
-                        break
-                    self._complete_stage("PARSING_RESUME", success=False)
-                    sys.exit(
-                        "❌ Resume Parser quality gate exhausted with no fallback available."
-                    )
-                except Exception as e:
-                    print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
-                    if attempt == self.MAX_RETRIES - 1:
-                        self._complete_stage("PARSING_RESUME", success=False)
-                        sys.exit("❌ Failed to parse original resume after retries.")
-
-            if original_cv is None:
-                if original_cv_result is None or original_cv_result.output is None:
-                    self._complete_stage("PARSING_RESUME", success=False)
-                    sys.exit("❌ Failed to parse original resume after retries.")
-                original_cv = original_cv_result.output
-
-        self._complete_stage("PARSING_RESUME")
-        print(f"   ✅ Resume Parsed: {original_cv.full_name}")
-        print(
-            f"   📋 Found {len(original_cv.skills)} skills, {len(original_cv.experience)} work experiences\n"
-        )
-
-        original_cv_json = original_cv.model_dump_json()
-
-        # --- STEP 1: ANALYZE JOB (Agent 1) ---
-        self._set_stage("ANALYZING_JOB")
-        print("🤖 Agent 1 (Analyst): Reading job post...")
-
-        # Determine job content source
+        # --- STEPS 0 & 1: PARSE RESUME ∥ ANALYZE JOB (concurrent on cold cache) ---
+        # Build the job-analysis prompt first (cheap, synchronous).
         if job_content:
             job_analysis_prompt = f"Analyze the following job posting and extract structured job data:\n\n{job_content}"
         elif job_content_file_path:
-            job_analysis_prompt = f"Analyze the job content located at this file path {job_content_file_path} and extract structured job data."
+            job_analysis_prompt = (
+                f"Analyze the job content located at this file path {job_content_file_path} "
+                f"and extract structured job data."
+            )
         else:
-            self._complete_stage("ANALYZING_JOB", success=False)
             sys.exit(
                 "❌ No job content provided. Supply either job_content or job_content_file_path."
             )
 
-        job_analysis_result: AgentRunResult[JobAnalysis] | None = None
-        job_analysis: JobAnalysis | None = None
-        for attempt in range(self.MAX_RETRIES):
-            try:
-                job_analysis_result = await run_agent(
-                    analyst_agent,
-                    job_analysis_prompt,
-                    verbose=verbose,
-                    agent_label="Analyst",
-                    usage=total_usage,
-                    usage_limits=USAGE_LIMITS,
+        self._parse_usage = RunUsage()
+        self._analyze_usage = RunUsage()
+        self._analyst_result = None
+
+        self._set_stage("PARSING_RESUME")
+        original_cv: CV | None = None
+
+        try:
+            if pre_parsed_cv is not None:
+                self._reporter.log(
+                    "♻️  Using cached parsed resume (skipping AI parsing)"
                 )
-
-                print(f"   [Debug] Job Data: {job_analysis_result.output}")
-
-                if job_analysis_result.output is None:
-                    raise ValueError("Job analysis data is None")
-
-                if (
-                    job_analysis_result.output.job_title
-                    and job_analysis_result.output.company_name
-                ):
-                    break
-
-                print(
-                    f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete job data, retrying..."
+                original_cv = pre_parsed_cv
+                self._complete_stage("PARSING_RESUME")
+                self._set_stage("ANALYZING_JOB")
+                job_analysis = await self._analyze_job(job_analysis_prompt, verbose)
+            else:
+                # Parse and analyze run concurrently — show BOTH as running.
+                # Mark ANALYZING_JOB running directly (do NOT use _set_stage,
+                # which would prematurely flip the in-flight PARSING_RESUME to
+                # done before the gather completes).
+                self._stage_status["ANALYZING_JOB"] = "running"
+                self._current_stage = "ANALYZING_JOB"
+                self._reporter.stage_start("ANALYZING_JOB")
+                original_cv, job_analysis = await asyncio.gather(
+                    self._parse_resume(resume_text, debug, verbose),
+                    self._analyze_job(job_analysis_prompt, verbose),
                 )
+                self._complete_stage("PARSING_RESUME")
+        except UnexpectedModelBehavior:
+            self._complete_stage("PARSING_RESUME", success=False)
+            self._complete_stage("ANALYZING_JOB", success=False)
+            sys.exit(
+                "❌ Resume parsing or job analysis failed: the agent did not return "
+                "usable output after retries."
+            )
+        except (RuntimeError, ValueError) as e:
+            self._complete_stage("ANALYZING_JOB", success=False)
+            sys.exit(f"❌ {e}")
 
-            except UnexpectedModelBehavior:
-                if _analyst_qs.last_output is not None:
-                    print(
-                        "⚠️  Job Analyst quality gate exhausted — using best available output"
-                    )
-                    job_analysis = _analyst_qs.last_output
-                    break
-                self._complete_stage("ANALYZING_JOB", success=False)
-                sys.exit(
-                    "❌ Job Analyst quality gate exhausted with no fallback available."
-                )
-            except Exception as e:
-                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
-                if attempt == self.MAX_RETRIES - 1:
-                    self._complete_stage("ANALYZING_JOB", success=False)
-                    sys.exit("❌ Failed to get complete job analysis after retries.")
-
-        if job_analysis is None:
-            if job_analysis_result is None or job_analysis_result.output is None:
-                self._complete_stage("ANALYZING_JOB", success=False)
-                sys.exit("❌ Failed to get complete job analysis after retries.")
-            job_analysis = job_analysis_result.output
+        # Merge per-branch usage into the run total.
+        total_usage.incr(self._parse_usage)
+        total_usage.incr(self._analyze_usage)
 
         self._complete_stage("ANALYZING_JOB")
-        print(
+        self._reporter.log(f"   ✅ Resume Parsed: {original_cv.full_name}")
+        self._reporter.log(
+            f"   📋 Found {len(original_cv.skills)} skills, {len(original_cv.experience)} work experiences\n"
+        )
+        self._reporter.log(
             f"   ✅ Job Analyzed: {job_analysis.job_title} at {job_analysis.company_name}"
         )
-        print(f"   🎯 Keywords found: {job_analysis.keywords_to_target}\n")
-        self._print_pipeline_status()
+        self._reporter.log(f"   🎯 Keywords found: {job_analysis.keywords_to_target}\n")
 
+        original_cv_json = original_cv.model_dump_json()
         job_data_json = job_analysis.model_dump_json()
 
         # --- STEP 2: WRITE + REVIEW + AUDIT LOOP ---
-        self._set_stage("WRITING_CV")
         new_cv: CV | None = None
         audit = None
         review = None
@@ -271,11 +312,13 @@ class ResumeTailorWorkflow:
 
         for write_attempt in range(self.max_write_attempts):
             self._set_stage("WRITING_CV")
-            print(
+            self._reporter.log(
                 f"🤖 Agent 2 (Writer): Tailoring CV (Attempt {write_attempt + 1}/{self.max_write_attempts})..."
             )
             if write_attempt == 0:
-                print(f"   [Debug] Original CV has {len(original_cv.skills)} skills")
+                self._reporter.log(
+                    f"   [Debug] Original CV has {len(original_cv.skills)} skills"
+                )
                 writer_prompt = f"""
 Here is the Job Analysis:
 {job_data_json}
@@ -287,7 +330,7 @@ Rewrite the CV to match the Job Analysis. Use ONLY the information from the Orig
 Rephrase and reorganize to highlight relevant experience, but do NOT add new skills or experiences.
 """
             else:
-                print("   🔄 Retrying with audit feedback...")
+                self._reporter.log("   🔄 Retrying with audit feedback...")
                 issues_text = "\n".join(
                     [
                         f"- [{getattr(i, 'severity', 'Unknown')}] {getattr(i, 'issue', str(i))} -> {getattr(i, 'suggestion', '')}"
@@ -330,12 +373,12 @@ Rewrite the CV to match the Job Analysis while addressing all audit feedback.
                 new_cv = writer_result.output or None
             except UnexpectedModelBehavior:
                 if _writer_qs.last_output is not None:
-                    print(
+                    self._reporter.log(
                         "⚠️  CV Writer quality gate exhausted — using best available output"
                     )
                     new_cv = _writer_qs.last_output
                 else:
-                    print(
+                    self._reporter.log(
                         "⚠️  CV Writer quality gate exhausted with no fallback — skipping tailoring"
                     )
                     new_cv = None
@@ -347,12 +390,14 @@ Rewrite the CV to match the Job Analysis while addressing all audit feedback.
                 continue
 
             self._complete_stage("WRITING_CV")
-            print(f"   ✅ CV Drafted. Summary: {new_cv.summary[:100]}...\n")
+            self._reporter.log(
+                f"   ✅ CV Drafted. Summary: {new_cv.summary[:100]}...\n"
+            )
 
             # --- STEP 2.5: QUALITY REVIEW (Agent 2.5) ---
             self._set_stage("REVIEWING_CV")
             for review_iteration in range(self.max_review_iterations):
-                print(
+                self._reporter.log(
                     f"🤖 Agent 2.5 (Reviewer): Checking CV quality (Iteration {review_iteration + 1}/{self.max_review_iterations})..."
                 )
 
@@ -377,19 +422,27 @@ Assess quality and suggest improvements if needed.
                     review = review_result.output
 
                     if review is None:
-                        print("   ⚠️ Review returned None, skipping quality check\n")
+                        self._reporter.log(
+                            "   ⚠️ Review returned None, skipping quality check\n"
+                        )
                         break
 
-                    print(f"   📊 Quality Score: {review.quality_score}/10")
+                    self._reporter.log(
+                        f"   📊 Quality Score: {review.quality_score}/10"
+                    )
 
                     if review.strengths:
-                        print(f"   ✨ Strengths: {', '.join(review.strengths[:2])}")
+                        self._reporter.log(
+                            f"   ✨ Strengths: {', '.join(review.strengths[:2])}"
+                        )
 
                     if (
                         review.needs_improvement
                         and review_iteration < self.max_review_iterations - 1
                     ):
-                        print("   🔄 Quality improvements needed, refining...\n")
+                        self._reporter.log(
+                            "   🔄 Quality improvements needed, refining...\n"
+                        )
 
                         suggestions_text = "\n".join(
                             f"- {s}" for s in review.specific_suggestions
@@ -425,19 +478,23 @@ Focus on better highlighting relevant experience and incorporating job keywords 
                         )
                         if refined_result.output:
                             new_cv = refined_result.output
-                            print("   ✅ CV refined based on feedback\n")
+                            self._reporter.log("   ✅ CV refined based on feedback\n")
                         else:
-                            print("   ⚠️ Refinement returned None, keeping current CV\n")
+                            self._reporter.log(
+                                "   ⚠️ Refinement returned None, keeping current CV\n"
+                            )
                             break
                     else:
                         if review.needs_improvement:
-                            print("   ℹ️ Max review iterations reached\n")
+                            self._reporter.log("   ℹ️ Max review iterations reached\n")
                         else:
-                            print("   ✅ Quality check passed!\n")
+                            self._reporter.log("   ✅ Quality check passed!\n")
                         break
 
                 except Exception as e:
-                    print(f"   ⚠️ Review failed: {e}, continuing with current CV\n")
+                    self._reporter.log(
+                        f"   ⚠️ Review failed: {e}, continuing with current CV\n"
+                    )
                     break
 
             # --- STEP 3: AUDIT (Agent 3) ---
@@ -448,7 +505,9 @@ Focus on better highlighting relevant experience and incorporating job keywords 
                 else str(new_cv)
             )
 
-            print("🤖 Agent 3 (Auditor): Validating for hallucinations and AI-speak...")
+            self._reporter.log(
+                "🤖 Agent 3 (Auditor): Validating for hallucinations and AI-speak..."
+            )
             audit_prompt = f"""
 ORIGINAL CV (structured):
 {original_cv_json}
@@ -478,72 +537,79 @@ Compare the two structured CVs carefully. Ensure that:
                 audit = audit_result.output
             except UnexpectedModelBehavior:
                 if _auditor_qs.last_output is not None:
-                    print(
+                    self._reporter.log(
                         "⚠️  Auditor quality gate exhausted — using best available output"
                     )
                     audit = _auditor_qs.last_output
                 else:
-                    print(
+                    self._reporter.log(
                         "⚠️  Auditor quality gate exhausted with no fallback — skipping audit"
                     )
                     audit = None
 
             if audit is None:
-                print(f"   ⚠️ Audit result is None on attempt {write_attempt + 1}")
+                self._reporter.log(
+                    f"   ⚠️ Audit result is None on attempt {write_attempt + 1}"
+                )
                 self._complete_stage("AUDITING_CV", success=False)
                 if write_attempt < self.max_write_attempts - 1:
-                    print("   🔄 Will retry...\n")
+                    self._reporter.log("   🔄 Will retry...\n")
                     continue
                 else:
-                    self._complete_stage("AUDITING_CV", success=False)
-                    print("   ❌ Max attempts reached\n")
+                    self._reporter.log("   ❌ Max attempts reached\n")
                     break
 
             audit_passed = getattr(audit, "passed", False)
             if audit_passed:
                 self._complete_stage("AUDITING_CV")
-                print(f"   ✅ Audit passed on attempt {write_attempt + 1}!\n")
+                self._reporter.log(
+                    f"   ✅ Audit passed on attempt {write_attempt + 1}!\n"
+                )
                 break  # exit loop — report phase runs below
             else:
-                print(f"   ⚠️ Audit failed on attempt {write_attempt + 1}")
+                self._reporter.log(f"   ⚠️ Audit failed on attempt {write_attempt + 1}")
                 if write_attempt < self.max_write_attempts - 1:
-                    print("   🔄 Will retry with feedback...\n")
+                    self._reporter.log("   🔄 Will retry with feedback...\n")
                 else:
                     self._complete_stage("AUDITING_CV", success=False)
-                    print("   ❌ Max attempts reached\n")
+                    self._reporter.log("   ❌ Max attempts reached\n")
 
         # Print audit report regardless of pass/fail
-        print("\n" + "=" * 30)
-        print("📋 FINAL AUDIT REPORT")
-        print("=" * 30)
+        self._reporter.log("\n" + "=" * 30)
+        self._reporter.log("📋 FINAL AUDIT REPORT")
+        self._reporter.log("=" * 30)
 
         if audit is None:
-            print("⚠️ Warning: No audit result available")
+            self._reporter.log("⚠️ Warning: No audit result available")
         else:
             passed_display = getattr(audit, "passed", None)
             hallucination_score = getattr(audit, "hallucination_score", None)
             ai_cliche_score = getattr(audit, "ai_cliche_score", None)
             feedback_summary = getattr(audit, "feedback_summary", "")
 
-            print(f"Passed: {passed_display}")
-            print(f"Hallucination Score (0 is best): {hallucination_score}")
-            print(f"AI Cliche Score (0 is best): {ai_cliche_score}")
-            print(f"Feedback: {feedback_summary}")
+            self._reporter.log(f"Passed: {passed_display}")
+            self._reporter.log(
+                f"Hallucination Score (0 is best): {hallucination_score}"
+            )
+            self._reporter.log(f"AI Cliche Score (0 is best): {ai_cliche_score}")
+            self._reporter.log(f"Feedback: {feedback_summary}")
 
             issues = getattr(audit, "issues", []) or []
             if issues:
-                print("\n⚠️ Issues Found:")
+                self._reporter.log("\n⚠️ Issues Found:")
                 for i in issues:
                     sev = getattr(i, "severity", "Unknown")
                     issue_text = getattr(i, "issue", str(i))
                     suggestion = getattr(i, "suggestion", "")
-                    print(f" - [{sev}] {issue_text} -> {suggestion}")
+                    self._reporter.log(f" - [{sev}] {issue_text} -> {suggestion}")
 
         # === REPORT PHASE — always runs ===
         final_report: FinalReport | None = None
         self._set_stage("GENERATING_REPORT")
         try:
-            print("\n🤖 Agent 5 (Report Writer): Generating self-review report...")
+            self._reporter.log(
+                "\n🤖 Agent 5 (Report Writer): Generating self-review report..."
+            )
 
             cv_diff = (
                 compute_cv_diff(original_cv, new_cv) if new_cv is not None else CVDiff()
@@ -551,8 +617,8 @@ Compare the two structured CVs carefully. Ensure that:
             gap_analysis = compute_gap_analysis(
                 original_cv,
                 new_cv,
-                job_analysis_result.output
-                if job_analysis_result and job_analysis_result.output
+                self._analyst_result.output
+                if self._analyst_result and self._analyst_result.output
                 else JobAnalysis(),
             )
 
@@ -591,15 +657,13 @@ Job Analysis: {job_data_json}
                 passed=audit_passed,
             )
             self._complete_stage("GENERATING_REPORT")
-            print("   ✅ Report generated.\n")
+            self._reporter.log("   ✅ Report generated.\n")
 
         except Exception as e:
             self._complete_stage("GENERATING_REPORT", success=False)
-            print(f"   ⚠️ Report generation failed: {e}\n")
+            self._reporter.log(f"   ⚠️ Report generation failed: {e}\n")
 
-        # Print final pipeline status
         self._stage_status["GENERATING_REPORT"] = "done" if final_report else "failed"
-        self._print_pipeline_status()
 
         # Build audit_report dict for backward compatibility
         audit_report_dict: dict = {

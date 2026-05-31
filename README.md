@@ -187,6 +187,24 @@ uv run resume-tailor re-tailor \
   --model openai:gpt-4o-mini
 ```
 
+### Live progress & speed
+
+By default a **live progress dashboard** is shown in the terminal, updating as each pipeline stage completes. In non-TTY environments (CI, pipes) it degrades to plain line-by-line logging automatically.
+
+**`--verbose` / `-v`** — streams every agent's thinking and output tokens in real-time. This replaces the dashboard with direct streaming output and is the recommended mode for clean interactive viewing (see note below).
+
+**Speed flags** (available on both `tailor` and `re-tailor`):
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--fast` | off | Speed preset: trims loops to 1 write + 1 review and enables faster model tier for mechanical agents |
+| `--write-attempts N` | `2` | Maximum writer attempts in the write → review → audit outer loop |
+| `--review-iterations N` | `1` | Maximum reviewer iterations per write attempt |
+| `--quality-gate` / `--no-quality-gate` | on | Enable or disable the advisory quality gate |
+| `--gate-threshold N` | `6` | Re-run an agent only when its quality score is below this threshold (0–10) |
+
+> **Note on TTY interleaving:** when running interactively with the default live dashboard, the dashboard's Rich panel and the workflow's own `print()` calls can interleave and garble the output. This does not affect correctness — only the visual display. For clean interactive output use `--verbose`, or run in a non-TTY environment (pipe, CI). A future follow-up will route workflow `print()` calls through the reporter to eliminate this.
+
 ### Alternative entry point
 
 You can also invoke the CLI directly:
