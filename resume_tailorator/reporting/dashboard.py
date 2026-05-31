@@ -73,7 +73,9 @@ class LiveDashboard:
     def _log(self, msg: str) -> None:
         """Plain-line output used in non-TTY mode."""
         if not self.is_live:
-            self.console.print(msg)
+            # markup=False: messages (e.g. note's "...[Writer]...") may contain
+            # bracket characters that Rich would otherwise parse as markup.
+            self.console.print(msg, markup=False)
 
     # --- rendering ---
     def render(self) -> Table:

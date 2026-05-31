@@ -68,3 +68,11 @@ def test_log_writes_to_console():
     dash = LiveDashboard(console=console)
     dash.log("workflow-status-line")
     assert "workflow-status-line" in out.getvalue()
+
+
+def test_note_with_brackets_not_interpreted_as_markup():
+    out = io.StringIO()
+    console = Console(file=out, force_terminal=False, width=80)
+    dash = LiveDashboard(console=console)  # non-TTY -> _log path
+    dash.note("Stream interrupted for [Writer], falling back...")
+    assert "[Writer]" in out.getvalue()  # printed literally, not parsed as markup
