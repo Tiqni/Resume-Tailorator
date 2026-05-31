@@ -36,6 +36,21 @@ logger = logging.getLogger(__name__)
 _console = Console()
 
 
+def _safe_report(fn: Any, *args: Any, **kwargs: Any) -> None:
+    """Invoke a best-effort reporter method, swallowing display errors.
+
+    ProgressReporter methods are documented as best-effort: a buggy or custom
+    reporter must never abort the agent run or the pipeline. Cancellation still
+    propagates.
+    """
+    try:
+        fn(*args, **kwargs)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        raise
+    except Exception:
+        logger.debug("reporter_call_failed", exc_info=True)
+
+
 async def run_agent(
     agent: Agent,
     prompt: str,
@@ -54,12 +69,18 @@ async def run_agent(
     if resolved is not None:
         run_kwargs["model"] = resolved
 
-    reporter.agent_start(agent_label, prompt)
+    _safe_report(reporter.agent_start, agent_label, prompt)
     start = time.monotonic()
 
-    if not reporter.wants_tokens:
+    try:
+        wants_tokens = reporter.wants_tokens
+    except Exception:
+        logger.debug("reporter_call_failed", exc_info=True)
+        wants_tokens = False
+
+    if not wants_tokens:
         result = await agent.run(prompt, **run_kwargs)
-        reporter.agent_done(agent_label, time.monotonic() - start)
+        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
         return result
 
     try:
@@ -69,14 +90,21 @@ async def run_agent(
                 result = event.result
             elif isinstance(event, PartDeltaEvent):
                 if isinstance(event.delta, TextPartDelta):
-                    reporter.token(agent_label, event.delta.content_delta, "output")
+                    _safe_report(
+                        reporter.token, agent_label, event.delta.content_delta, "output"
+                    )
                 elif isinstance(event.delta, ThinkingPartDelta):
-                    reporter.token(agent_label, event.delta.content_delta, "thinking")
+                    _safe_report(
+                        reporter.token,
+                        agent_label,
+                        event.delta.content_delta,
+                        "thinking",
+                    )
 
         if result is None:
             result = await agent.run(prompt, **run_kwargs)
 
-        reporter.agent_done(agent_label, time.monotonic() - start)
+        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
         return result
 
     except (KeyboardInterrupt, asyncio.CancelledError):
@@ -89,9 +117,11 @@ async def run_agent(
             extra={"agent_label": agent_label},
             exc_info=True,
         )
-        reporter.note(f"Stream interrupted for [{agent_label}], falling back...")
+        _safe_report(
+            reporter.note, f"Stream interrupted for [{agent_label}], falling back..."
+        )
         result = await agent.run(prompt, **run_kwargs)
-        reporter.agent_done(agent_label, time.monotonic() - start)
+        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
         return result
 
 
@@ -145,9 +175,14 @@ def reset_agent_models() -> None:
     STRONG_MODEL = _original_model
 
 
+def agent_models_configured() -> bool:
+    """True once set_agent_models() has moved a tier off the import-time default."""
+    return not (FAST_MODEL == STRONG_MODEL == _original_model)
+
+
 def resolve_model(agent_label: str) -> str | None:
     """Resolve the model for an agent label, or None to use the agent default."""
-    if FAST_MODEL == STRONG_MODEL == _original_model:
+    if not agent_models_configured():
         return None  # unconfigured: let each agent use its own model
     tier = _AGENT_TIERS.get(agent_label, "strong")
     return FAST_MODEL if tier == "fast" else STRONG_MODEL

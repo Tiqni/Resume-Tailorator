@@ -72,3 +72,20 @@ def test_model_override_via_tiers_applies_to_all_agents():
         assert agents_mod.resolve_model("Auditor") == "openai:gpt-4o"
     finally:
         agents_mod.reset_agent_models()
+
+
+def test_agent_models_configured_reflects_tier_state():
+    """The guard that protects --fast tiers from a bare --model override.
+
+    _run_impl only force-pins every tier to the override model when tiers are
+    still unconfigured; once --fast has set distinct tiers this returns True so
+    the mechanical agents keep their fast tier.
+    """
+    agents_mod.reset_agent_models()
+    assert agents_mod.agent_models_configured() is False
+    agents_mod.set_agent_models(fast="openai:gpt-5-nano", strong="openai:gpt-5-mini")
+    try:
+        assert agents_mod.agent_models_configured() is True
+    finally:
+        agents_mod.reset_agent_models()
+    assert agents_mod.agent_models_configured() is False

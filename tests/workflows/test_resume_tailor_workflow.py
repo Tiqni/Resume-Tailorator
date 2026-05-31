@@ -106,5 +106,8 @@ async def test_analyst_failure_after_retries_exits(monkeypatch, sample_cv) -> No
         "resume_tailorator.workflows.agents.analyst_agent.run", always_fail
     )
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as excinfo:
         await ResumeTailorWorkflow().run(sample_cv, "files/job_posting.md")
+
+    # The exit carries a user-facing message that surfaces the underlying error.
+    assert "simulated agent unavailable" in str(excinfo.value)

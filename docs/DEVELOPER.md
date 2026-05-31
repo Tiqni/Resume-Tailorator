@@ -170,7 +170,7 @@ Four independent mechanisms reduce end-to-end latency:
 1. **Parallel parse∥analyze**: on a cold cache the Resume Parser and Job Analyst stages run concurrently via `asyncio.gather`.
 2. **Advisory quality gate**: the quality gate is now single-pass and advisory — it scores once and only re-runs the agent when the score falls below the configurable `--gate-threshold` (default 6). The gate is skipped entirely for Parser and Analyst.
 3. **Trimmed configurable loops**: the write/review retry defaults are 2 write attempts × 1 review iteration (down from 3×3). Both are adjustable via `--write-attempts` and `--review-iterations`.
-4. **Per-agent model tuning**: `set_agent_models(fast_model)` / `resolve_model(agent_name)` in `workflows/agents.py` let mechanical agents (Parser, Analyst) use a faster/cheaper model tier. The `--fast` CLI flag activates all four levers simultaneously.
+4. **Per-agent model tuning**: `set_agent_models(fast=..., strong=...)` / `resolve_model(agent_name)` in `workflows/agents.py` let mechanical agents (Parser, Analyst) use a faster/cheaper model tier while heavier agents stay on the strong tier. The `--fast` CLI flag activates all four levers simultaneously.
 
 ## How to Add a New Pipeline Agent
 
