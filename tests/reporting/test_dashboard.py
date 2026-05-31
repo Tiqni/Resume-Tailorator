@@ -60,3 +60,11 @@ def test_stage_done_failure_logs_failed():
         dash.stage_start("AUDITING_CV")
         dash.stage_done("AUDITING_CV", success=False)
     assert "FAILED" in out.getvalue()
+
+
+def test_log_writes_to_console():
+    out = io.StringIO()
+    console = Console(file=out, force_terminal=False, width=80)
+    dash = LiveDashboard(console=console)
+    dash.log("workflow-status-line")
+    assert "workflow-status-line" in out.getvalue()

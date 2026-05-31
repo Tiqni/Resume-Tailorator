@@ -52,3 +52,6 @@ class VerboseReporter:
 
     def note(self, msg: str) -> None:
         self.console.print(msg, style="yellow", markup=False)
+
+    def log(self, msg: str) -> None:
+        self.console.print(msg, markup=False)

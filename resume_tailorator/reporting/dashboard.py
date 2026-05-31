@@ -145,3 +145,9 @@ class LiveDashboard:
         self.activity = msg
         self._log(msg)
         self._refresh()
+
+    def log(self, msg: str) -> None:
+        # Workflow status line. console.print is managed by Rich Live (renders
+        # above the panel when live); markup=False because workflow strings are
+        # plain text that may contain bracket characters.
+        self.console.print(msg, markup=False)

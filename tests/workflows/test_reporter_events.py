@@ -84,3 +84,4 @@ async def test_workflow_emits_stage_events(monkeypatch, sample_cv):
     assert "AUDITING_CV" in starts
     assert "GENERATING_REPORT" in starts
     assert any(e[0] == "stage_done" for e in rec.events)
+    assert any(e[0] == "log" for e in rec.events)

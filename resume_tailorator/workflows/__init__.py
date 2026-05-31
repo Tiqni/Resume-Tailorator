@@ -71,9 +71,9 @@ class ResumeTailorWorkflow:
 
     def _print_pipeline_status(self) -> None:
         """Print current pipeline status."""
-        print("\n" + "=" * 50)
-        print("📊 PIPELINE STATUS")
-        print("=" * 50)
+        self._reporter.log("\n" + "=" * 50)
+        self._reporter.log("📊 PIPELINE STATUS")
+        self._reporter.log("=" * 50)
         icons = {"pending": "⏳", "running": "🔄", "done": "✅", "failed": "❌"}
         labels = {
             "PARSING_RESUME": "Parse Resume",
@@ -90,8 +90,8 @@ class ResumeTailorWorkflow:
             current_marker = (
                 "→" if (stage == self._current_stage and status == "running") else " "
             )
-            print(f"  {current_marker}{icon} {label}: {status.upper()}")
-        print("=" * 50 + "\n")
+            self._reporter.log(f"  {current_marker}{icon} {label}: {status.upper()}")
+        self._reporter.log("=" * 50 + "\n")
 
     async def _parse_resume(self, resume_text: str, debug: bool, verbose: bool) -> CV:
         """Parse the original resume into a CV. Raises on hard failure."""
@@ -116,15 +116,15 @@ class ResumeTailorWorkflow:
                 ):
                     original_cv = original_cv_result.output
                     break
-                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete resume parse, retrying...")
+                self._reporter.log(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete resume parse, retrying...")
             except UnexpectedModelBehavior:
                 if _parser_qs.last_output is not None:
-                    print("⚠️  Resume Parser quality gate exhausted — using best available output")
+                    self._reporter.log("⚠️  Resume Parser quality gate exhausted — using best available output")
                     original_cv = _parser_qs.last_output
                     break
                 raise
             except Exception as e:
-                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
+                self._reporter.log(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
                 if attempt == self.MAX_RETRIES - 1:
                     raise
         if original_cv is None:
@@ -157,15 +157,15 @@ class ResumeTailorWorkflow:
                 ):
                     job_analysis = job_analysis_result.output
                     break
-                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete job data, retrying...")
+                self._reporter.log(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES}: Incomplete job data, retrying...")
             except UnexpectedModelBehavior:
                 if _analyst_qs.last_output is not None:
-                    print("⚠️  Job Analyst quality gate exhausted — using best available output")
+                    self._reporter.log("⚠️  Job Analyst quality gate exhausted — using best available output")
                     job_analysis = _analyst_qs.last_output
                     break
                 raise
             except Exception as e:
-                print(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
+                self._reporter.log(f"⚠️ Attempt {attempt + 1}/{self.MAX_RETRIES} failed: {e}")
                 if attempt == self.MAX_RETRIES - 1:
                     raise
         if job_analysis is None:
@@ -223,11 +223,11 @@ class ResumeTailorWorkflow:
         if model:
             set_model(model)
             set_agent_models(fast=model, strong=model)
-            print(f"🤖 Using model: {model}")
+            self._reporter.log(f"🤖 Using model: {model}")
         else:
-            print(f"🤖 Using model: {get_model()}")
+            self._reporter.log(f"🤖 Using model: {get_model()}")
 
-        print("🚀 STARTING MULTI-AGENT PIPELINE\n")
+        self._reporter.log("🚀 STARTING MULTI-AGENT PIPELINE\n")
         self._print_pipeline_status()
 
         total_usage = RunUsage()
@@ -255,7 +255,7 @@ class ResumeTailorWorkflow:
 
         try:
             if pre_parsed_cv is not None:
-                print("♻️  Using cached parsed resume (skipping AI parsing)")
+                self._reporter.log("♻️  Using cached parsed resume (skipping AI parsing)")
                 original_cv = pre_parsed_cv
                 self._complete_stage("PARSING_RESUME")
                 self._set_stage("ANALYZING_JOB")
@@ -286,10 +286,10 @@ class ResumeTailorWorkflow:
         total_usage.incr(self._analyze_usage)
 
         self._complete_stage("ANALYZING_JOB")
-        print(f"   ✅ Resume Parsed: {original_cv.full_name}")
-        print(f"   📋 Found {len(original_cv.skills)} skills, {len(original_cv.experience)} work experiences\n")
-        print(f"   ✅ Job Analyzed: {job_analysis.job_title} at {job_analysis.company_name}")
-        print(f"   🎯 Keywords found: {job_analysis.keywords_to_target}\n")
+        self._reporter.log(f"   ✅ Resume Parsed: {original_cv.full_name}")
+        self._reporter.log(f"   📋 Found {len(original_cv.skills)} skills, {len(original_cv.experience)} work experiences\n")
+        self._reporter.log(f"   ✅ Job Analyzed: {job_analysis.job_title} at {job_analysis.company_name}")
+        self._reporter.log(f"   🎯 Keywords found: {job_analysis.keywords_to_target}\n")
         self._print_pipeline_status()
 
         original_cv_json = original_cv.model_dump_json()
@@ -303,11 +303,11 @@ class ResumeTailorWorkflow:
 
         for write_attempt in range(self.max_write_attempts):
             self._set_stage("WRITING_CV")
-            print(
+            self._reporter.log(
                 f"🤖 Agent 2 (Writer): Tailoring CV (Attempt {write_attempt + 1}/{self.max_write_attempts})..."
             )
             if write_attempt == 0:
-                print(f"   [Debug] Original CV has {len(original_cv.skills)} skills")
+                self._reporter.log(f"   [Debug] Original CV has {len(original_cv.skills)} skills")
                 writer_prompt = f"""
 Here is the Job Analysis:
 {job_data_json}
@@ -319,7 +319,7 @@ Rewrite the CV to match the Job Analysis. Use ONLY the information from the Orig
 Rephrase and reorganize to highlight relevant experience, but do NOT add new skills or experiences.
 """
             else:
-                print("   🔄 Retrying with audit feedback...")
+                self._reporter.log("   🔄 Retrying with audit feedback...")
                 issues_text = "\n".join(
                     [
                         f"- [{getattr(i, 'severity', 'Unknown')}] {getattr(i, 'issue', str(i))} -> {getattr(i, 'suggestion', '')}"
@@ -362,12 +362,12 @@ Rewrite the CV to match the Job Analysis while addressing all audit feedback.
                 new_cv = writer_result.output or None
             except UnexpectedModelBehavior:
                 if _writer_qs.last_output is not None:
-                    print(
+                    self._reporter.log(
                         "⚠️  CV Writer quality gate exhausted — using best available output"
                     )
                     new_cv = _writer_qs.last_output
                 else:
-                    print(
+                    self._reporter.log(
                         "⚠️  CV Writer quality gate exhausted with no fallback — skipping tailoring"
                     )
                     new_cv = None
@@ -379,12 +379,12 @@ Rewrite the CV to match the Job Analysis while addressing all audit feedback.
                 continue
 
             self._complete_stage("WRITING_CV")
-            print(f"   ✅ CV Drafted. Summary: {new_cv.summary[:100]}...\n")
+            self._reporter.log(f"   ✅ CV Drafted. Summary: {new_cv.summary[:100]}...\n")
 
             # --- STEP 2.5: QUALITY REVIEW (Agent 2.5) ---
             self._set_stage("REVIEWING_CV")
             for review_iteration in range(self.max_review_iterations):
-                print(
+                self._reporter.log(
                     f"🤖 Agent 2.5 (Reviewer): Checking CV quality (Iteration {review_iteration + 1}/{self.max_review_iterations})..."
                 )
 
@@ -409,19 +409,19 @@ Assess quality and suggest improvements if needed.
                     review = review_result.output
 
                     if review is None:
-                        print("   ⚠️ Review returned None, skipping quality check\n")
+                        self._reporter.log("   ⚠️ Review returned None, skipping quality check\n")
                         break
 
-                    print(f"   📊 Quality Score: {review.quality_score}/10")
+                    self._reporter.log(f"   📊 Quality Score: {review.quality_score}/10")
 
                     if review.strengths:
-                        print(f"   ✨ Strengths: {', '.join(review.strengths[:2])}")
+                        self._reporter.log(f"   ✨ Strengths: {', '.join(review.strengths[:2])}")
 
                     if (
                         review.needs_improvement
                         and review_iteration < self.max_review_iterations - 1
                     ):
-                        print("   🔄 Quality improvements needed, refining...\n")
+                        self._reporter.log("   🔄 Quality improvements needed, refining...\n")
 
                         suggestions_text = "\n".join(
                             f"- {s}" for s in review.specific_suggestions
@@ -457,19 +457,19 @@ Focus on better highlighting relevant experience and incorporating job keywords 
                         )
                         if refined_result.output:
                             new_cv = refined_result.output
-                            print("   ✅ CV refined based on feedback\n")
+                            self._reporter.log("   ✅ CV refined based on feedback\n")
                         else:
-                            print("   ⚠️ Refinement returned None, keeping current CV\n")
+                            self._reporter.log("   ⚠️ Refinement returned None, keeping current CV\n")
                             break
                     else:
                         if review.needs_improvement:
-                            print("   ℹ️ Max review iterations reached\n")
+                            self._reporter.log("   ℹ️ Max review iterations reached\n")
                         else:
-                            print("   ✅ Quality check passed!\n")
+                            self._reporter.log("   ✅ Quality check passed!\n")
                         break
 
                 except Exception as e:
-                    print(f"   ⚠️ Review failed: {e}, continuing with current CV\n")
+                    self._reporter.log(f"   ⚠️ Review failed: {e}, continuing with current CV\n")
                     break
 
             # --- STEP 3: AUDIT (Agent 3) ---
@@ -480,7 +480,7 @@ Focus on better highlighting relevant experience and incorporating job keywords 
                 else str(new_cv)
             )
 
-            print("🤖 Agent 3 (Auditor): Validating for hallucinations and AI-speak...")
+            self._reporter.log("🤖 Agent 3 (Auditor): Validating for hallucinations and AI-speak...")
             audit_prompt = f"""
 ORIGINAL CV (structured):
 {original_cv_json}
@@ -510,71 +510,71 @@ Compare the two structured CVs carefully. Ensure that:
                 audit = audit_result.output
             except UnexpectedModelBehavior:
                 if _auditor_qs.last_output is not None:
-                    print(
+                    self._reporter.log(
                         "⚠️  Auditor quality gate exhausted — using best available output"
                     )
                     audit = _auditor_qs.last_output
                 else:
-                    print(
+                    self._reporter.log(
                         "⚠️  Auditor quality gate exhausted with no fallback — skipping audit"
                     )
                     audit = None
 
             if audit is None:
-                print(f"   ⚠️ Audit result is None on attempt {write_attempt + 1}")
+                self._reporter.log(f"   ⚠️ Audit result is None on attempt {write_attempt + 1}")
                 self._complete_stage("AUDITING_CV", success=False)
                 if write_attempt < self.max_write_attempts - 1:
-                    print("   🔄 Will retry...\n")
+                    self._reporter.log("   🔄 Will retry...\n")
                     continue
                 else:
-                    print("   ❌ Max attempts reached\n")
+                    self._reporter.log("   ❌ Max attempts reached\n")
                     break
 
             audit_passed = getattr(audit, "passed", False)
             if audit_passed:
                 self._complete_stage("AUDITING_CV")
-                print(f"   ✅ Audit passed on attempt {write_attempt + 1}!\n")
+                self._reporter.log(f"   ✅ Audit passed on attempt {write_attempt + 1}!\n")
                 break  # exit loop — report phase runs below
             else:
-                print(f"   ⚠️ Audit failed on attempt {write_attempt + 1}")
+                self._reporter.log(f"   ⚠️ Audit failed on attempt {write_attempt + 1}")
                 if write_attempt < self.max_write_attempts - 1:
-                    print("   🔄 Will retry with feedback...\n")
+                    self._reporter.log("   🔄 Will retry with feedback...\n")
                 else:
                     self._complete_stage("AUDITING_CV", success=False)
-                    print("   ❌ Max attempts reached\n")
+                    self._reporter.log("   ❌ Max attempts reached\n")
 
         # Print audit report regardless of pass/fail
-        print("\n" + "=" * 30)
-        print("📋 FINAL AUDIT REPORT")
-        print("=" * 30)
+        self._reporter.log("\n" + "=" * 30)
+        self._reporter.log("📋 FINAL AUDIT REPORT")
+        self._reporter.log("=" * 30)
 
         if audit is None:
-            print("⚠️ Warning: No audit result available")
+            self._reporter.log("⚠️ Warning: No audit result available")
         else:
             passed_display = getattr(audit, "passed", None)
             hallucination_score = getattr(audit, "hallucination_score", None)
             ai_cliche_score = getattr(audit, "ai_cliche_score", None)
             feedback_summary = getattr(audit, "feedback_summary", "")
 
-            print(f"Passed: {passed_display}")
-            print(f"Hallucination Score (0 is best): {hallucination_score}")
-            print(f"AI Cliche Score (0 is best): {ai_cliche_score}")
-            print(f"Feedback: {feedback_summary}")
+            self._reporter.log(f"Passed: {passed_display}")
+            self._reporter.log(f"Hallucination Score (0 is best): {hallucination_score}")
+            self._reporter.log(f"AI Cliche Score (0 is best): {ai_cliche_score}")
+            self._reporter.log(f"Feedback: {feedback_summary}")
 
             issues = getattr(audit, "issues", []) or []
             if issues:
-                print("\n⚠️ Issues Found:")
+                self._reporter.log("\n⚠️ Issues Found:")
                 for i in issues:
                     sev = getattr(i, "severity", "Unknown")
                     issue_text = getattr(i, "issue", str(i))
                     suggestion = getattr(i, "suggestion", "")
-                    print(f" - [{sev}] {issue_text} -> {suggestion}")
+                    self._reporter.log(f" - [{sev}] {issue_text} -> {suggestion}")
 
         # === REPORT PHASE — always runs ===
         final_report: FinalReport | None = None
         self._set_stage("GENERATING_REPORT")
         try:
-            print("\n🤖 Agent 5 (Report Writer): Generating self-review report...")
+            self._reporter.log("\n🤖 Agent 5 (Report Writer): Generating self-review report...")
 
             cv_diff = (
                 compute_cv_diff(original_cv, new_cv) if new_cv is not None else CVDiff()
@@ -622,11 +622,11 @@ Job Analysis: {job_data_json}
                 passed=audit_passed,
             )
             self._complete_stage("GENERATING_REPORT")
-            print("   ✅ Report generated.\n")
+            self._reporter.log("   ✅ Report generated.\n")
 
         except Exception as e:
             self._complete_stage("GENERATING_REPORT", success=False)
-            print(f"   ⚠️ Report generation failed: {e}\n")
+            self._reporter.log(f"   ⚠️ Report generation failed: {e}\n")
 
         # Print final pipeline status
         self._stage_status["GENERATING_REPORT"] = "done" if final_report else "failed"

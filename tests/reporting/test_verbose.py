@@ -65,3 +65,9 @@ def test_prompt_with_brackets_not_interpreted_as_markup():
     rep.agent_start("Writer", "use [bold] and [/dim] in resume")
     text = out.getvalue()
     assert "[bold]" in text  # printed literally, not interpreted
+
+
+def test_log_writes_to_console():
+    console, out = _console()
+    VerboseReporter(console=console).log("verbose-status-line")
+    assert "verbose-status-line" in out.getvalue()

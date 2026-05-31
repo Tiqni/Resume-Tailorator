@@ -42,6 +42,9 @@ class RecordingReporter:
     def note(self, msg: str) -> None:
         self.events.append(("note", msg))
 
+    def log(self, msg: str) -> None:
+        self.events.append(("log", msg))
+
 
 def test_null_reporter_satisfies_protocol():
     reporter = NullReporter()
@@ -83,3 +86,8 @@ def test_use_reporter_restores_on_exception():
         with use_reporter(rec):
             raise ValueError("boom")
     assert isinstance(get_active_reporter(), NullReporter)
+
+
+def test_null_reporter_log_prints(capsys):
+    NullReporter().log("hello-null")
+    assert "hello-null" in capsys.readouterr().out
