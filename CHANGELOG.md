@@ -1,3 +1,9 @@
+## v0.3.0 (2026-05-31)
+
+### Feat
+
+- live progress dashboard + workflow speed levers (#35)
+
 ## v0.2.3 (2026-05-17)
 
 ### Fix
