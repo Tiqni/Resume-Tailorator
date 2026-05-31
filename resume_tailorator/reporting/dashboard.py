@@ -6,7 +6,12 @@ import time
 
 from rich.console import Console
 from rich.live import Live
+from rich.markup import escape
 from rich.table import Table
+
+# Braille spinner frames; advanced by wall-clock so the panel animates even
+# while an agent is mid-call and emitting no tokens (e.g. during a tool call).
+_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 DEFAULT_STAGES = [
     "PARSING_RESUME",
@@ -31,9 +36,12 @@ _ICONS = {"pending": "⏳", "running": "🔄", "done": "✅", "failed": "❌"}
 
 class LiveDashboard:
     """Renders pipeline progress as an in-place table when stdout is a TTY,
-    and as plain line logging otherwise."""
+    and as plain line logging otherwise.
 
-    wants_tokens = False
+    In a TTY the panel is alive: the running stage's elapsed time ticks, a
+    spinner advances, and a rolling snippet of the active agent's latest output
+    is shown in the caption — without dumping the full token firehose (that is
+    what VerboseReporter / ``--verbose`` is for)."""
 
     def __init__(
         self,
@@ -49,26 +57,36 @@ class LiveDashboard:
         self.last_scores: dict[str, int] = {}
         self.activity: str = ""
         self.is_live: bool = bool(self.console.is_terminal)
+        # Only ask run_agent to stream tokens when there's a live panel to show
+        # them on; in non-TTY mode streaming would be wasted work.
+        self.wants_tokens: bool = self.is_live
+        # Currently-running agent (for the live caption ticker).
+        self._agent_label: str = ""
+        self._agent_started_at: float | None = None
+        self._stream_tail: str = ""
         self._live: Live | None = None
+
+    def __rich__(self) -> Table:
+        # Re-evaluated by Rich on every Live refresh, so the timer/spinner tick.
+        return self.render()
 
     # --- context management ---
     def __enter__(self) -> "LiveDashboard":
         if self.is_live:
-            self._live = Live(
-                self.render(), console=self.console, refresh_per_second=8
-            )
+            # Pass self (not a static table) so each auto-refresh re-renders.
+            self._live = Live(self, console=self.console, refresh_per_second=8)
             self._live.__enter__()
         return self
 
     def __exit__(self, *exc) -> None:
         if self._live is not None:
-            self._live.update(self.render())
+            self._live.refresh()
             self._live.__exit__(*exc)
             self._live = None
 
     def _refresh(self) -> None:
         if self._live is not None:
-            self._live.update(self.render())
+            self._live.refresh()
 
     def _log(self, msg: str) -> None:
         """Plain-line output used in non-TTY mode."""
@@ -90,18 +108,34 @@ class LiveDashboard:
             for agent_label, n in self.retry_counts.items()
             if n
         )
+        now = time.monotonic()
         for stage in self.stages:
             status = self.status.get(stage, "pending")
             icon = _ICONS.get(status, "?")
             label = _LABELS.get(stage, stage)
             secs = self.elapsed.get(stage)
+            if secs is None and status == "running" and stage in self.started_at:
+                secs = now - self.started_at[stage]  # live ticking elapsed
             elapsed = f"{secs:.1f}s" if secs is not None else ""
             note = retry_summary if status == "running" else ""
             table.add_row(icon, label, status.upper(), elapsed, note)
-        caption = self.activity[:80]
-        if caption:
-            table.caption = f"… {caption}"
+        table.caption = self._caption(now)
         return table
+
+    def _caption(self, now: float) -> str:
+        """Live caption: spinner + active agent + ticking elapsed + latest output."""
+        frame = _SPINNER[int(now * 10) % len(_SPINNER)]
+        parts: list[str] = []
+        if self._agent_label and self._agent_started_at is not None:
+            parts.append(f"{self._agent_label} · {now - self._agent_started_at:.0f}s")
+            if self._stream_tail:
+                parts.append(self._stream_tail)
+        elif self.activity:
+            parts.append(self.activity)
+        body = " · ".join(parts)
+        # escape(): the stream tail is arbitrary model output and may contain
+        # bracket characters that Rich would otherwise parse as markup.
+        return escape(f"{frame} {body}" if body else frame)
 
     # --- ProgressReporter protocol ---
     def stage_start(self, stage: str) -> None:
@@ -121,7 +155,9 @@ class LiveDashboard:
         self._refresh()
 
     def agent_start(self, label: str, prompt: str) -> None:
-        self.activity = f"{label} working…"
+        self._agent_label = label
+        self._agent_started_at = time.monotonic()
+        self._stream_tail = ""
         self._refresh()
 
     def agent_retry(self, label: str, reason: str) -> None:
@@ -136,10 +172,14 @@ class LiveDashboard:
         self._refresh()
 
     def token(self, label: str, text: str, kind: str) -> None:
-        # Dashboard ignores token-level deltas (wants_tokens is False).
-        return
+        # Keep a short, single-line rolling tail of the latest streamed text.
+        # No _refresh per token — the Live auto-refresh redraws at its own rate.
+        self._stream_tail = (self._stream_tail + text).replace("\n", " ")[-80:]
 
     def agent_done(self, label: str, elapsed: float) -> None:
+        self._agent_label = ""
+        self._agent_started_at = None
+        self._stream_tail = ""
         self.activity = f"{label} done ({elapsed:.1f}s)"
         self._refresh()
 

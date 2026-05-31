@@ -1,6 +1,7 @@
 """Tests for LiveDashboard reporter."""
 
 import io
+import time
 
 from rich.console import Console
 
@@ -12,12 +13,66 @@ def _console(force_terminal: bool) -> Console:
     return Console(file=io.StringIO(), force_terminal=force_terminal, width=80)
 
 
+def _render_to_text(dash: LiveDashboard) -> str:
+    out = io.StringIO()
+    Console(file=out, width=120).print(dash.render())
+    return out.getvalue()
+
+
 def test_satisfies_protocol():
     assert isinstance(LiveDashboard(console=_console(False)), ProgressReporter)
 
 
-def test_wants_tokens_false():
-    assert LiveDashboard(console=_console(True)).wants_tokens is False
+def test_wants_tokens_follows_tty():
+    # Stream tokens only when there's a live panel to show them on.
+    assert LiveDashboard(console=_console(True)).wants_tokens is True
+    assert LiveDashboard(console=_console(False)).wants_tokens is False
+
+
+def test_rich_dunder_returns_renderable():
+    dash = LiveDashboard(console=_console(True))
+    assert dash.__rich__() is not None
+
+
+def test_token_updates_rolling_activity_caption():
+    dash = LiveDashboard(console=_console(True))
+    dash.agent_start("Analyst", "prompt")
+    dash.token("Analyst", "Reading the job ", "output")
+    dash.token("Analyst", "requirements now", "output")
+    assert "requirements now" in _render_to_text(dash)
+
+
+def test_token_brackets_not_interpreted_as_markup_in_caption():
+    dash = LiveDashboard(console=_console(True))
+    dash.agent_start("Writer", "p")
+    dash.token("Writer", "value [bold] here", "output")
+    assert "[bold]" in _render_to_text(dash)  # literal, not parsed as markup
+
+
+def test_running_stage_elapsed_is_live():
+    dash = LiveDashboard(console=_console(True))
+    dash.stage_start("ANALYZING_JOB")
+    dash.started_at["ANALYZING_JOB"] = time.monotonic() - 3.0  # backdate
+    # Running stage shows a live-computed elapsed (~3.0s), not blank.
+    assert "3." in _render_to_text(dash)
+
+
+def test_caption_shows_active_agent_with_ticking_elapsed():
+    dash = LiveDashboard(console=_console(True))
+    dash.agent_start("Scraper", "prompt")
+    dash._agent_started_at = time.monotonic() - 5.0  # backdate
+    rendered = _render_to_text(dash)
+    assert "Scraper" in rendered
+    assert "5s" in rendered or "4s" in rendered
+
+
+def test_agent_done_clears_active_agent():
+    dash = LiveDashboard(console=_console(True))
+    dash.agent_start("Auditor", "p")
+    dash.agent_done("Auditor", 1.2)
+    # After done, the live agent ticker is cleared; the done note shows instead.
+    rendered = _render_to_text(dash)
+    assert "Auditor done" in rendered
 
 
 def test_non_tty_degrades_to_line_logging():
