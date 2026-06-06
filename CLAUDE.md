@@ -20,7 +20,7 @@ uv run resume-tailor re-tailor <JOB_ID> "<RECOMMENDATIONS>"
 graphify update .                         # refresh the knowledge graph after code changes (AST-only, no API cost)
 ```
 
-Tests never hit a real LLM: `tests/conftest.py` sets `models.ALLOW_MODEL_REQUESTS = False` and a dummy `OPENAI_API_KEY`. Async tests use `pytest-anyio` (`@pytest.mark.anyio`). There is no CI workflow or pre-commit; run `ruff` and `pytest` yourself before claiming done.
+Tests never hit a real LLM: `tests/conftest.py` sets `models.ALLOW_MODEL_REQUESTS = False` and a dummy `OPENAI_API_KEY`. Async tests use `pytest-anyio` (`@pytest.mark.anyio`). CI (`.github/workflows/ci.yml`) runs `ruff check`, `ruff format --check`, and pytest with coverage on every PR to `main`. There are no pre-commit hooks, so run `uv run ruff check . && uv run ruff format --check . && uv run pytest` yourself before pushing. (Note: CI currently pipes pytest through `tee`, which masks the exit code — a green CI check does not guarantee tests passed; read the run log.)
 
 **Worktrees**: `AGENTS.md` asks that feature work happen in an isolated git worktree, keeping `main` pristine. Commit/push only when the user asks.
 
