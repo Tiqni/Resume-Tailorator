@@ -1,3 +1,9 @@
+## v0.3.1 (2026-06-06)
+
+### Fix
+
+- allow non-OpenAI models (e.g. ollama) without an OpenAI key (#37)
+
 ## v0.3.0 (2026-05-31)
 
 ### Feat
