@@ -31,7 +31,12 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Run tests with coverage
-        run: uv run pytest --junitxml=pytest.xml --cov=resume_tailorator --cov-report=term-missing | tee pytest-coverage.txt
+        # Use bash with pipefail so a pytest failure is not masked by tee's exit
+        # code (tee captures stdout for the coverage-comment step below).
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run pytest --junitxml=pytest.xml --cov=resume_tailorator --cov-report=term-missing | tee pytest-coverage.txt
 
       - name: Pytest coverage comment
         uses: MishaKav/pytest-coverage-comment@v1
