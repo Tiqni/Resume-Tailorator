@@ -89,3 +89,62 @@ def test_agent_models_configured_reflects_tier_state():
     finally:
         agents_mod.reset_agent_models()
     assert agents_mod.agent_models_configured() is False
+
+
+def test_default_model_builds_without_openai_key(monkeypatch):
+    """Regression: constructing the agents must not require OPENAI_API_KEY.
+
+    pydantic-ai builds the provider client eagerly when a model *string* is given
+    to Agent(...), which crashed `import` for users running --model=ollama:...
+    with no OpenAI key. _build_default_model must succeed (with a placeholder) and
+    still yield a *defined* model so Agent.override / per-run overrides work.
+    """
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    model = agents_mod._build_default_model()
+    assert model is not None
+    assert getattr(model, "model_name", None) == "gpt-5-mini"
+
+
+def test_agents_carry_a_defined_default_model():
+    """Every agent needs a defined base model: override() refuses to mask a
+    missing model, and the unconfigured run path falls back to it."""
+    assert agents_mod.quality_gate_agent.model is not None
+    assert agents_mod.job_scraper_agent.model is not None
+
+
+def test_apply_model_override_pins_all_tiers():
+    """--model must reach every stage — including the scraper/parser that run
+    before the workflow — by pinning both tiers."""
+    agents_mod.reset_model()
+    agents_mod.reset_agent_models()
+    try:
+        agents_mod.apply_model_override("ollama:kimi-k2.6:cloud")
+        for label in ("Scraper", "Parser", "Writer", "Auditor", "Quality Gate"):
+            assert agents_mod.resolve_model(label) == "ollama:kimi-k2.6:cloud"
+    finally:
+        agents_mod.reset_model()
+        agents_mod.reset_agent_models()
+
+
+def test_apply_model_override_preserves_fast_tiers():
+    """A bare --model after --fast must keep the distinct fast/strong tiers."""
+    agents_mod.reset_model()
+    agents_mod.reset_agent_models()
+    agents_mod.set_agent_models(fast="openai:gpt-5-nano", strong="openai:gpt-5-mini")
+    try:
+        agents_mod.apply_model_override("ollama:kimi-k2.6:cloud")
+        assert agents_mod.resolve_model("Parser") == "openai:gpt-5-nano"
+        assert agents_mod.resolve_model("Writer") == "openai:gpt-5-mini"
+    finally:
+        agents_mod.reset_model()
+        agents_mod.reset_agent_models()
+
+
+def test_apply_model_override_noop_on_falsy():
+    """No --model given → tiers stay unconfigured (agents use their own default)."""
+    agents_mod.reset_model()
+    agents_mod.reset_agent_models()
+    agents_mod.apply_model_override(None)
+    assert agents_mod.resolve_model("Parser") is None
+    agents_mod.apply_model_override("")
+    assert agents_mod.resolve_model("Parser") is None

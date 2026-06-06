@@ -95,11 +95,14 @@ class PydanticAIResumeParser(ResumeParserAdapter):
         from pydantic_ai.exceptions import UnexpectedModelBehavior  # noqa: PLC0415
         from resume_tailorator.workflows.agents import (  # noqa: PLC0415
             _parser_qs,
+            resolve_model,
             resume_parser_agent,
         )
 
         try:
-            result = resume_parser_agent.run_sync(content)
+            result = resume_parser_agent.run_sync(
+                content, model=resolve_model("Parser")
+            )
             return self._validate_output(result.output)
         except UnexpectedModelBehavior:
             if _parser_qs.last_output is not None:
@@ -127,11 +130,14 @@ class PydanticAIResumeParser(ResumeParserAdapter):
         from pydantic_ai.exceptions import UnexpectedModelBehavior  # noqa: PLC0415
         from resume_tailorator.workflows.agents import (  # noqa: PLC0415
             _parser_qs,
+            resolve_model,
             resume_parser_agent,
         )
 
         try:
-            result = await resume_parser_agent.run(content)
+            result = await resume_parser_agent.run(
+                content, model=resolve_model("Parser")
+            )
             return self._validate_output(result.output)
         except UnexpectedModelBehavior:
             if _parser_qs.last_output is not None:

@@ -38,6 +38,7 @@ from resume_tailorator.reporting import LiveDashboard, VerboseReporter
 from resume_tailorator.reporting.base import use_reporter
 from resume_tailorator.workflows import ResumeTailorWorkflow
 from resume_tailorator.workflows.agents import (
+    apply_model_override,
     job_scraper_agent,
     run_agent,
     set_agent_models,
@@ -333,6 +334,11 @@ async def _tailor_impl(
             _apply_fast_preset(model)
         )
 
+    # Apply --model before any agent runs (scraper + cache parser run before the
+    # workflow), so every stage honours the chosen model — critical for non-OpenAI
+    # providers like ollama where the default model's key would otherwise be needed.
+    apply_model_override(model)
+
     reporter = (
         VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
     )
@@ -599,6 +605,10 @@ async def _re_tailor_impl(
         write_attempts, review_iterations, quality_gate, gate_threshold = (
             _apply_fast_preset(model)
         )
+
+    # Apply --model before the cache parser runs (it resolves the original resume
+    # before the workflow), so every stage honours the chosen model.
+    apply_model_override(model)
 
     reporter = (
         VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
