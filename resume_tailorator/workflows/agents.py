@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from typing import Any
 
@@ -14,6 +15,9 @@ from pydantic_ai import (
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
+from pydantic_ai.models import infer_model
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.usage import Usage, UsageLimits
 from rich.console import Console
 
@@ -141,6 +145,33 @@ _cover_qs = _QualityState()
 MODEL_NAME = "openai:gpt-5-mini"
 _original_model = MODEL_NAME
 
+
+def _build_default_model() -> Any:
+    """Build the default model object without requiring credentials at import.
+
+    Passing a model *string* to ``Agent(...)`` makes pydantic-ai construct the
+    provider's HTTP client immediately, which needs e.g. ``OPENAI_API_KEY`` even
+    for a user running ``--model=ollama:...`` who has no OpenAI key. We instead
+    build the default model here: with the real key when present, otherwise with
+    a placeholder so import always succeeds. Agents still carry a *defined* model
+    (required for ``Agent.override`` in tests and for per-run model overrides),
+    but the placeholder key only matters if this default OpenAI model is actually
+    used at run time — i.e. no ``--model`` override and no ``OPENAI_API_KEY`` —
+    in which case OpenAI returns a clear authentication error.
+    """
+    if os.environ.get("OPENAI_API_KEY"):
+        return infer_model(MODEL_NAME)
+    # No key: build the OpenAI default with a placeholder so import never fails.
+    _bare_name = MODEL_NAME.partition(":")[2] or MODEL_NAME
+    return OpenAIChatModel(
+        _bare_name, provider=OpenAIProvider(api_key="missing-openai-api-key")
+    )
+
+
+# Shared default model object reused by every agent below (see run_agent /
+# resolve_model for how a --model override replaces it at run time).
+_DEFAULT_MODEL = _build_default_model()
+
 # Per-agent model tiers. Defaults equal MODEL_NAME (no behavior change until
 # configured via set_agent_models()).
 FAST_MODEL = MODEL_NAME
@@ -183,7 +214,7 @@ def agent_models_configured() -> bool:
 def resolve_model(agent_label: str) -> str | None:
     """Resolve the model for an agent label, or None to use the agent default."""
     if not agent_models_configured():
-        return None  # unconfigured: let each agent use its own model
+        return None  # unconfigured: let each agent use its own default model
     tier = _AGENT_TIERS.get(agent_label, "strong")
     return FAST_MODEL if tier == "fast" else STRONG_MODEL
 
@@ -203,6 +234,22 @@ def reset_model() -> None:
     """Reset model to the original default."""
     global MODEL_NAME
     MODEL_NAME = _original_model
+
+
+def apply_model_override(model: str | None) -> None:
+    """Point every agent tier at ``model`` unless tiers are already configured.
+
+    Idempotent and safe to call before any agent runs, so the early pipeline
+    stages (job scraper, cache resume-parser) honour --model just like the
+    in-workflow agents. A no-op when ``model`` is falsy. When --fast (or an
+    explicit set_agent_models call) has already configured distinct tiers, those
+    are preserved — only the default MODEL_NAME is updated.
+    """
+    if not model:
+        return
+    set_model(model)
+    if not agent_models_configured():
+        set_agent_models(fast=model, strong=model)
 
 
 MODEL_SETTINGS: dict = {}
@@ -253,7 +300,7 @@ async def _score_output(role: str, label: str, payload: str, ctx) -> int | None:
 # --- Quality Gate Agent ---
 # Universal reviewer: scores any pipeline agent's output 0-10 and requests improvements.
 quality_gate_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""You are a strict Quality Gate Reviewer for a resume tailoring pipeline.
 Score the output of the agent whose role is specified in the prompt, on a scale of 0 to 10.
@@ -274,7 +321,7 @@ Always provide reasoning, and list specific improvements whenever the score is b
 # --- Agent 0: The Scraper ---
 # Responsibility: Fetch the job posting content.
 scraper_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are an expert Technical Recruiter.
@@ -290,7 +337,7 @@ scraper_agent = Agent(
 # --- Agent 1: The Job Analyst ---
 # Responsibility: Turn Markdown or raw text into a structured JobAnalysis object.
 analyst_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are an expert Technical Recruiter.
@@ -305,7 +352,7 @@ analyst_agent = Agent(
 # --- Agent 1.5: The Resume Parser ---
 # Responsibility: Parse markdown resume into structured CV object
 resume_parser_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are an expert Resume Parser.
@@ -333,7 +380,7 @@ resume_parser_agent = Agent(
 # --- Agent 2: The Writer ---
 # Responsibility: Rewrite the CV based on the Analysis.
 writer_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a Senior Resume Writer.
@@ -362,7 +409,7 @@ writer_agent = Agent(
 # --- Agent 3: The Auditor ---
 # Responsibility: Compare Original vs New to catch lies and AI-speak.
 auditor_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a strict Compliance Auditor and Resume Quality Checker.
@@ -416,7 +463,7 @@ auditor_agent = Agent(
 # --- Agent 4: The Cover Letter Writer ---
 # Responsibility: Write a personalized, human-sounding cover letter.
 cover_letter_writer_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are an experienced Career Coach specializing in authentic, human cover letters.
@@ -450,7 +497,7 @@ cover_letter_writer_agent = Agent(
 # --- Agent 3.5: The Reviewer ---
 # Responsibility: Review quality and suggest specific improvements
 reviewer_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a Senior Resume Quality Reviewer.
@@ -495,7 +542,7 @@ reviewer_agent = Agent(
 # JobAnalysis as structured JSON. Produces only narrative fields (factual diff
 # and gap data are injected by the workflow, not generated by the LLM).
 report_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a Career Advisor writing a clear, honest self-review report.
@@ -560,7 +607,7 @@ async def _validate_auditor(ctx: RunContext[None], output: AuditResult) -> Audit
 # --- Agent: JobScraperAgent ---
 # Responsibility: Scrape job postings from URLs and validate extracted content.
 job_scraper_agent = Agent(
-    MODEL_NAME,
+    _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
     output_type=ScrapedJobPosting,
     retries=3,

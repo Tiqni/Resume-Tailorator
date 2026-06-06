@@ -100,7 +100,7 @@ uv run resume-tailor tailor <JOB_URL> <RESUME_PATH> --model anthropic:claude-son
 | [Cohere](https://dashboard.cohere.com)                         | `cohere:`       | `cohere:command-r-plus`               | `COHERE_API_KEY`     |
 | [DeepSeek](https://platform.deepseek.com)                      | `deepseek:`     | `deepseek:deepseek-chat`              | `DEEPSEEK_API_KEY`   |
 | [OpenRouter](https://openrouter.ai)                            | `openrouter:`   | `openrouter:openai/gpt-4o`            | `OPENROUTER_API_KEY` |
-| [Ollama](https://ollama.com) (local)                           | `ollama:`       | `ollama:llama3`                       | _(none — local)_     |
+| [Ollama](https://ollama.com) (local)                           | `ollama:`       | `ollama:llama3`                       | `OLLAMA_BASE_URL`    |
 | [GitHub Models](https://github.com/marketplace/models)         | `github:`       | `github:xai/grok-3-mini`              | `GITHUB_API_KEY`     |
 | [Cerebras](https://cloud.cerebras.ai)                          | `cerebras:`     | `cerebras:llama3.1-8b`                | `CEREBRAS_API_KEY`   |
 | [AWS Bedrock](https://aws.amazon.com/bedrock)                  | `bedrock:`      | `bedrock:anthropic.claude-sonnet-4-5` | AWS credentials      |
@@ -109,11 +109,19 @@ uv run resume-tailor tailor <JOB_URL> <RESUME_PATH> --model anthropic:claude-son
 
 ### Using a Local Model (Ollama)
 
-To use a locally running model via [Ollama](https://ollama.com), make sure Ollama is running and the model is pulled:
+To use a model via [Ollama](https://ollama.com), make sure Ollama is running, the model is pulled, and point the provider at Ollama's OpenAI-compatible endpoint by exporting `OLLAMA_BASE_URL` (PydanticAI requires it — there is no default):
 
 ```bash
 ollama pull llama3
+export OLLAMA_BASE_URL=http://localhost:11434/v1
 uv run resume-tailor tailor <JOB_URL> <RESUME_PATH> --model ollama:llama3
+```
+
+Ollama cloud models work the same way through the local daemon (sign in with `ollama signin` first):
+
+```bash
+export OLLAMA_BASE_URL=http://localhost:11434/v1
+uv run resume-tailor tailor <JOB_URL> <RESUME_PATH> --model 'ollama:kimi-k2.6:cloud'
 ```
 
 > **⚠️ Note:** Local models may be slower or produce less reliable structured output than cloud providers. The quality gates and retries help compensate, but for production use a cloud provider is recommended.

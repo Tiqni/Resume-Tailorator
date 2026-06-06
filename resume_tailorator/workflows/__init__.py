@@ -26,10 +26,8 @@ from resume_tailorator.workflows.agents import (
     reviewer_agent,
     run_agent,
     writer_agent,
-    agent_models_configured,
+    apply_model_override,
     get_model,
-    set_model,
-    set_agent_models,
 )
 
 
@@ -216,18 +214,11 @@ class ResumeTailorWorkflow:
         debug: bool = False,
         verbose: bool = False,
     ) -> ResumeTailorResult:
-        # Override model if specified
-        if model:
-            set_model(model)
-            # A bare --model override forces every tier to that model — but only
-            # when tiers are still unconfigured. If --fast (or an explicit
-            # set_agent_models call) already configured tiers, respect them so
-            # mechanical agents keep their fast tier.
-            if not agent_models_configured():
-                set_agent_models(fast=model, strong=model)
-            self._reporter.log(f"🤖 Using model: {model}")
-        else:
-            self._reporter.log(f"🤖 Using model: {get_model()}")
+        # Override model if specified. Idempotent with the CLI layer, which calls
+        # apply_model_override before the scraper/parser so they honour --model too.
+        # A bare --model pins every tier; --fast's distinct tiers are preserved.
+        apply_model_override(model)
+        self._reporter.log(f"🤖 Using model: {model or get_model()}")
 
         self._reporter.log("🚀 STARTING MULTI-AGENT PIPELINE\n")
 

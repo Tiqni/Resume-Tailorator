@@ -538,7 +538,7 @@ def test_parser_raises_when_agent_returns_no_output(
     """The parser adapter must fail clearly when the agent returns no structured output."""
 
     class _FakeAgent:
-        def run_sync(self, content: str) -> SimpleNamespace:
+        def run_sync(self, content: str, model=None) -> SimpleNamespace:
             return SimpleNamespace(output=None)
 
     monkeypatch.setitem(
@@ -547,6 +547,7 @@ def test_parser_raises_when_agent_returns_no_output(
         SimpleNamespace(
             resume_parser_agent=_FakeAgent(),
             _parser_qs=SimpleNamespace(last_output=None),
+            resolve_model=lambda label: None,
         ),
     )
 
@@ -562,7 +563,7 @@ def test_parser_raises_when_agent_returns_invalid_output_type(
     """The parser adapter must reject non-CV payloads from the agent."""
 
     class _FakeAgent:
-        def run_sync(self, content: str) -> SimpleNamespace:
+        def run_sync(self, content: str, model=None) -> SimpleNamespace:
             return SimpleNamespace(output={"full_name": "Jane"})
 
     monkeypatch.setitem(
@@ -571,6 +572,7 @@ def test_parser_raises_when_agent_returns_invalid_output_type(
         SimpleNamespace(
             resume_parser_agent=_FakeAgent(),
             _parser_qs=SimpleNamespace(last_output=None),
+            resolve_model=lambda label: None,
         ),
     )
 
