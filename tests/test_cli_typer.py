@@ -747,17 +747,25 @@ def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
 
 def test_tailor_accepts_fast_and_gate_flags():
     """New CLI flags are recognized (no error from Typer parsing)."""
+    import re
+
     from typer.testing import CliRunner
     from resume_tailorator.main import app
 
     runner = CliRunner()
     result = runner.invoke(app, ["tailor", "--help"])
     assert result.exit_code == 0
-    assert "--fast" in result.output
-    assert "--write-attempts" in result.output
-    assert "--review-iterations" in result.output
-    assert "--no-quality-gate" in result.output or "--quality-gate" in result.output
-    assert "--gate-threshold" in result.output
+    # Strip ANSI styling before matching: in color mode (e.g. CI, where rich
+    # emits color) each option's leading "--" is split by a style reset
+    # ("-\x1b[0m\x1b[1;36m-fast"), so the literal "--fast" substring is absent
+    # until the escape codes are removed. Locally output is uncolored and passes
+    # either way, which is why this only failed in CI.
+    output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--fast" in output
+    assert "--write-attempts" in output
+    assert "--review-iterations" in output
+    assert "--no-quality-gate" in output or "--quality-gate" in output
+    assert "--gate-threshold" in output
 
 
 def test_re_tailor_custom_patterns(tmp_path, monkeypatch) -> None:
