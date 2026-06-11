@@ -77,3 +77,63 @@ def assert_quality(markdown: str) -> None:
             "Extracted content looks like a placeholder or error page, "
             "not a job posting"
         )
+
+
+async def _navigate_and_render(page, url: str) -> str:
+    """Drive an open Playwright page to a rendered HTML string.
+
+    Navigates with wait_until="domcontentloaded" (fast, reliable), then makes a
+    BEST-EFFORT networkidle settle that is swallowed on timeout — the core fix
+    for sites whose network never goes idle. Retries once with a longer settle
+    if the visible body text is suspiciously short.
+    """
+    await page.goto(url, wait_until="domcontentloaded", timeout=_FETCH_TIMEOUT_MS)
+    try:
+        await page.wait_for_load_state("networkidle", timeout=_SETTLE_MS)
+    except Exception:
+        # networkidle is a bonus, never a gate: analytics/websockets keep the
+        # network busy forever on many job boards. Proceed with what rendered.
+        logger.debug("networkidle settle timed out; proceeding", extra={"url": url})
+    body_text = await page.inner_text("body")
+    if len(body_text.strip()) < _MIN_CONTENT_CHARS:
+        logger.debug("body text short; one retry settle", extra={"url": url})
+        await page.wait_for_timeout(_RETRY_SETTLE_MS)
+    return await page.content()
+
+
+async def _render_html(url: str) -> str:
+    """Launch a headless browser and return the rendered HTML for url."""
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        try:
+            context = await browser.new_context(user_agent=_USER_AGENT)
+            page = await context.new_page()
+            return await _navigate_and_render(page, url)
+        finally:
+            await browser.close()
+
+
+async def fetch_job_markdown(url: str) -> RawScrape:
+    """Fetch a job posting and return cleaned Markdown (deterministic, no LLM).
+
+    Raises ScrapeError on a bad URL, navigation failure, or low-quality content.
+    """
+    validate_job_url(url)
+    logger.info("fetch_job_markdown_start", extra={"url": url})
+    try:
+        html = await _render_html(url)
+    except ScrapeError:
+        raise
+    except Exception as e:
+        raise ScrapeError(f"Failed to fetch {url}: {e}") from e
+    markdown, strategy = html_to_markdown(html)
+    assert_quality(markdown)
+    logger.info(
+        "fetch_job_markdown_success",
+        extra={"url": url, "strategy": strategy, "length": len(markdown)},
+    )
+    return RawScrape(
+        markdown_raw=markdown, source_text=html, extraction_strategy=strategy
+    )
