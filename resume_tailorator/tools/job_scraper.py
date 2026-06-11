@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 _FETCH_TIMEOUT_MS = 30_000  # hard cap on goto(domcontentloaded)
 _SETTLE_MS = 5_000  # best-effort networkidle wait after the DOM is parsed
 _RETRY_SETTLE_MS = 3_000  # extra wait for the single retry when body looks short
+# Soft "render not finished, wait once more" trigger. Distinct from the HARD
+# quality gate in assert_quality(): detect_placeholder_content rejects content
+# under ~100 chars. Keep the two thresholds separate — do not unify them.
 _MIN_CONTENT_CHARS = 200  # below this, treat as not-yet-rendered / placeholder
 
 _USER_AGENT = (
@@ -97,6 +100,8 @@ async def _navigate_and_render(page, url: str) -> str:
     body_text = await page.inner_text("body")
     if len(body_text.strip()) < _MIN_CONTENT_CHARS:
         logger.debug("body text short; one retry settle", extra={"url": url})
+        # Best-effort extra settle only — we re-read content() but do NOT re-gate
+        # here. Content quality is enforced downstream by assert_quality().
         await page.wait_for_timeout(_RETRY_SETTLE_MS)
     return await page.content()
 
