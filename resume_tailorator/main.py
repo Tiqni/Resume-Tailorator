@@ -36,7 +36,7 @@ from resume_tailorator.utils.resume_converter import (
 )
 from resume_tailorator.reporting import LiveDashboard, VerboseReporter
 from resume_tailorator.reporting.base import use_reporter
-from resume_tailorator.workflows import ResumeTailorWorkflow
+from resume_tailorator.workflows import ResumeTailorWorkflow, UserAbortedError
 from resume_tailorator.workflows.agents import (
     apply_model_override,
     job_scraper_agent,
@@ -212,26 +212,38 @@ async def _run_workflow(
     quality_gate: bool = True,
     gate_threshold: int = 6,
     reporter=None,
+    interactive: bool = False,
 ) -> tuple[int, str | None, str | None, ResumeTailorResult]:
     set_quality_gate(enabled=quality_gate, threshold=gate_threshold)
     workflow = ResumeTailorWorkflow(
         write_attempts=write_attempts,
         review_iterations=review_iterations,
+        interactive=interactive,
     )
 
     job_content = job_posting_markdown
     if recommendations:
         job_content += f"\n\n---\n**Additional recommendations from prior audit:**\n{recommendations}\n"
 
-    result = await workflow.run(
-        resume_content,
-        job_content=job_content,
-        model=model,
-        pre_parsed_cv=pre_parsed_cv,
-        debug=debug,
-        verbose=verbose,
-        reporter=reporter,
-    )
+    try:
+        result = await workflow.run(
+            resume_content,
+            job_content=job_content,
+            model=model,
+            pre_parsed_cv=pre_parsed_cv,
+            debug=debug,
+            verbose=verbose,
+            reporter=reporter,
+        )
+    except UserAbortedError as e:
+        console.print(f"[yellow]🚫 {e}[/yellow]")
+        return 1, None, None, ResumeTailorResult(
+            company_name="",
+            job_title="",
+            tailored_resume="",
+            audit_report={},
+            passed=False,
+        )
 
     resume_path = None
     report_path = None
@@ -321,6 +333,7 @@ async def _tailor_impl(
     quality_gate: bool = True,
     gate_threshold: int = 6,
     fast: bool = False,
+    interactive: bool = False,
 ) -> int:
     """Async implementation of tailor command."""
     if not job_url.startswith(("http://", "https://")):
@@ -475,6 +488,7 @@ async def _tailor_impl(
                 quality_gate=quality_gate,
                 gate_threshold=gate_threshold,
                 reporter=reporter,
+                interactive=interactive,
             )
 
     if exit_code == 0:
@@ -561,6 +575,12 @@ def tailor(
     gate_threshold: int = typer.Option(
         6, help="Re-run an agent only when its quality score is below this"
     ),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        "-i",
+        help="Pause at quality checkpoints and ask what to do (audit failures, weak match). Allows providing feedback to retry.",
+    ),
 ) -> int:
     """Run the full resume tailoring workflow."""
     return asyncio.run(
@@ -578,6 +598,7 @@ def tailor(
             quality_gate=quality_gate,
             gate_threshold=gate_threshold,
             fast=fast,
+            interactive=interactive,
         )
     )
 
@@ -597,6 +618,7 @@ async def _re_tailor_impl(
     quality_gate: bool = True,
     gate_threshold: int = 6,
     fast: bool = False,
+    interactive: bool = False,
 ) -> int:
     """Async implementation of re-tailor command."""
     os.makedirs(output_dir, exist_ok=True)
@@ -721,6 +743,7 @@ async def _re_tailor_impl(
                 quality_gate=quality_gate,
                 gate_threshold=gate_threshold,
                 reporter=reporter,
+                interactive=interactive,
             )
 
     if exit_code == 0:
@@ -799,6 +822,12 @@ def re_tailor(
     gate_threshold: int = typer.Option(
         6, help="Re-run an agent only when its quality score is below this"
     ),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        "-i",
+        help="Pause at quality checkpoints and ask what to do (audit failures, weak match). Allows providing feedback to retry.",
+    ),
 ) -> int:
     """Re-run tailoring with recommendations from a prior audit."""
     return asyncio.run(
@@ -817,6 +846,7 @@ def re_tailor(
             quality_gate=quality_gate,
             gate_threshold=gate_threshold,
             fast=fast,
+            interactive=interactive,
         )
     )
 
