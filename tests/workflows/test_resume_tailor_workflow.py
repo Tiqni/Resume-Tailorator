@@ -4,6 +4,9 @@ import pytest
 
 from resume_tailorator.models.agents.output import (
     AuditResult,
+    CVDiff,
+    FinalReport,
+    GapAnalysis,
     JobAnalysis,
     ReviewResult,
 )
@@ -245,12 +248,6 @@ def test_checkpoint_feedback_returned_directly(monkeypatch):
 # Shared helpers for interactive checkpoint integration tests
 # ---------------------------------------------------------------------------
 
-from resume_tailorator.models.agents.output import (
-    FinalReport,
-    CVDiff,
-    GapAnalysis,
-)
-
 
 def _make_failing_audit():
     return AuditResult(
@@ -389,7 +386,9 @@ async def test_non_interactive_never_prompts(monkeypatch, sample_cv):
     """Non-interactive workflow with audit failure never calls input()."""
     monkeypatch.setattr(
         "builtins.input",
-        lambda _: (_ for _ in ()).throw(AssertionError("input() was called in non-interactive mode")),
+        lambda _: (_ for _ in ()).throw(
+            AssertionError("input() was called in non-interactive mode")
+        ),
     )
     _base_agent_mocks(monkeypatch, sample_cv, auditor_result=_make_failing_audit())
 

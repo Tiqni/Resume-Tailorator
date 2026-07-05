@@ -325,6 +325,7 @@ async def test_tailor_impl_interactive_flag_wired_through(
     class CapturingWorkflow:
         def __init__(self, **kwargs):
             captured_kwargs.update(kwargs)
+
         run = AsyncMock(return_value=workflow_result)
 
     with (
