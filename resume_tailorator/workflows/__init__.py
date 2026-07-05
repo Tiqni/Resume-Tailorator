@@ -97,7 +97,9 @@ class ResumeTailorWorkflow:
         if not self._interactive:
             return (default, "")
         if not sys.stdin.isatty():
-            self._reporter.log("⚠️  Interactive checkpoint skipped (stdin is not a TTY — using default)")
+            self._reporter.log(
+                "⚠️  Interactive checkpoint skipped (stdin is not a TTY — using default)"
+            )
             return (default, "")
 
         valid_keys = {key for key, _ in choices}
@@ -113,7 +115,9 @@ class ResumeTailorWorkflow:
             raw = input(f"Choice [{default}]: ").strip().lower() or default
 
             if raw not in valid_keys:
-                print(f"Unrecognized choice '{raw}'. Please choose from: {', '.join(sorted(valid_keys))}")
+                print(
+                    f"Unrecognized choice '{raw}'. Please choose from: {', '.join(sorted(valid_keys))}"
+                )
                 continue
 
             if raw == "f":
@@ -660,7 +664,9 @@ Compare the two structured CVs carefully. Ensure that:
                 hook1_details: list[str] = []
                 if audit:
                     hook1_details.append(f"Feedback: {audit.feedback_summary}")
-                    hook1_details.append(f"Hallucination score: {audit.hallucination_score}/10")
+                    hook1_details.append(
+                        f"Hallucination score: {audit.hallucination_score}/10"
+                    )
                     hook1_details.append(f"AI cliché score: {audit.ai_cliche_score}/10")
                     for issue in (getattr(audit, "issues", []) or []):
                         sev = getattr(issue, "severity", "Unknown")
@@ -690,7 +696,9 @@ Compare the two structured CVs carefully. Ensure that:
                 if action == "f":
                     user_feedback = feedback_text
                     feedback_attempts_remaining -= 1
-                    self._reporter.log("🔄 Re-running write/audit cycle with your instructions...\n")
+                    self._reporter.log(
+                        "🔄 Re-running write/audit cycle with your instructions...\n"
+                    )
                     continue  # outer while loop — restarts write/audit + report
 
             # === REPORT PHASE — always runs ===
@@ -756,11 +764,17 @@ Job Analysis: {job_data_json}
                         f"Keyword coverage: {len(gap.covered_keywords)}/{total_kw} ({gap.keyword_coverage_percent:.1f}%)",
                     ]
                     if gap.missing_hard_skills:
-                        hook2_details.append(f"Missing hard skills: {', '.join(gap.missing_hard_skills)}")
+                        hook2_details.append(
+                            f"Missing hard skills: {', '.join(gap.missing_hard_skills)}"
+                        )
                     if gap.missing_soft_skills:
-                        hook2_details.append(f"Missing soft skills: {', '.join(gap.missing_soft_skills)}")
+                        hook2_details.append(
+                            f"Missing soft skills: {', '.join(gap.missing_soft_skills)}"
+                        )
                     if gap.missing_keywords:
-                        hook2_details.append(f"Missing keywords: {', '.join(gap.missing_keywords)}")
+                        hook2_details.append(
+                            f"Missing keywords: {', '.join(gap.missing_keywords)}"
+                        )
 
                     if feedback_attempts_remaining > 0:
                         hook2_choices = [
@@ -785,7 +799,9 @@ Job Analysis: {job_data_json}
                     if action == "f":
                         user_feedback = feedback_text
                         feedback_attempts_remaining -= 1
-                        self._reporter.log("🔄 Re-running write/audit cycle with your instructions...\n")
+                        self._reporter.log(
+                            "🔄 Re-running write/audit cycle with your instructions...\n"
+                        )
                         continue  # outer while loop
 
                 self._complete_stage("GENERATING_REPORT")

@@ -304,7 +304,9 @@ async def test_tailor_impl_empty_resume_content_exits(tmp_path, monkeypatch) -> 
 
 
 @pytest.mark.anyio
-async def test_tailor_impl_interactive_flag_wired_through(tmp_path, monkeypatch) -> None:
+async def test_tailor_impl_interactive_flag_wired_through(
+    tmp_path, monkeypatch
+) -> None:
     """_tailor_impl(..., interactive=True) passes interactive=True to ResumeTailorWorkflow."""
     from unittest.mock import AsyncMock, MagicMock, patch as _patch
 
@@ -326,15 +328,30 @@ async def test_tailor_impl_interactive_flag_wired_through(tmp_path, monkeypatch)
         run = AsyncMock(return_value=workflow_result)
 
     with (
-        _patch("resume_tailorator.main.job_scraper_agent.run", AsyncMock(return_value=MagicMock(output=make_scraped_job()))),
+        _patch(
+            "resume_tailorator.main.job_scraper_agent.run",
+            AsyncMock(return_value=MagicMock(output=make_scraped_job())),
+        ),
         _patch("resume_tailorator.main.ResumeTailorWorkflow", CapturingWorkflow),
-        _patch("resume_tailorator.main.generate_resume", MagicMock(return_value="/fake/resume.md")),
+        _patch(
+            "resume_tailorator.main.generate_resume",
+            MagicMock(return_value="/fake/resume.md"),
+        ),
         _patch("resume_tailorator.main.SQLiteResumeMemoryRepository", MagicMock()),
         _patch("resume_tailorator.main.PydanticAIResumeParser", MagicMock()),
-        _patch("resume_tailorator.main.ResumeMemoryService", MagicMock(return_value=MagicMock(
-            aresolve_original_resume=AsyncMock(return_value=MagicMock(source=MagicMock(id="s"), cv=cv)),
-            save_tailored_resume=MagicMock(return_value=MagicMock(id="j")),
-        ))),
+        _patch(
+            "resume_tailorator.main.ResumeMemoryService",
+            MagicMock(
+                return_value=MagicMock(
+                    aresolve_original_resume=AsyncMock(
+                        return_value=MagicMock(
+                            source=MagicMock(id="s"), cv=cv
+                        )
+                    ),
+                    save_tailored_resume=MagicMock(return_value=MagicMock(id="j")),
+                )
+            ),
+        ),
     ):
         from resume_tailorator.main import _tailor_impl
         await _tailor_impl(

@@ -175,7 +175,10 @@ def test_checkpoint_non_tty_returns_default(monkeypatch):
 
 def test_checkpoint_non_tty_input_never_called(monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
-    monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(AssertionError("input called")))
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _: (_ for _ in ()).throw(AssertionError("input called")),
+    )
     workflow = ResumeTailorWorkflow(interactive=True)
     action, _ = workflow._human_checkpoint(
         header="Test", details=[], choices=[("c", "Continue")]
@@ -299,7 +302,9 @@ def _make_strong_report_narrative():
         overall_recommendation="Strong Match",
         match_score=90,
         what_changed=CVDiff(),
-        gaps=GapAnalysis(covered_keywords=["Python", "SQL"], keyword_coverage_percent=100.0),
+        gaps=GapAnalysis(
+            covered_keywords=["Python", "SQL"], keyword_coverage_percent=100.0
+        ),
         suggestions_to_strengthen=[],
         audit_summary="Passed",
         recommendation_rationale="Excellent coverage",
@@ -328,7 +333,12 @@ def _base_agent_mocks(monkeypatch, sample_cv, *, auditor_result, report_narrativ
 
     async def run_reviewer(*args, **kwargs):
         return DummyRunResult(
-            ReviewResult(quality_score=9, needs_improvement=False, specific_suggestions=[], strengths=[])
+            ReviewResult(
+                quality_score=9,
+                needs_improvement=False,
+                specific_suggestions=[],
+                strengths=[],
+            )
         )
 
     if isinstance(auditor_result, list):
@@ -345,15 +355,29 @@ def _base_agent_mocks(monkeypatch, sample_cv, *, auditor_result, report_narrativ
     if report_narrative is not None:
         async def run_report(*args, **kwargs):
             return DummyRunResult(report_narrative)
-        monkeypatch.setattr("resume_tailorator.workflows.agents.report_agent.run", run_report)
+
+        monkeypatch.setattr(
+            "resume_tailorator.workflows.agents.report_agent.run", run_report
+        )
 
     async def run_parser(*args, **kwargs):
         return DummyRunResult(sample_cv)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.analyst_agent.run", run_analyst)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.writer_agent.run", run_writer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.auditor_agent.run", run_auditor)
+
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.resume_parser_agent.run", run_parser
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.analyst_agent.run", run_analyst
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.writer_agent.run", run_writer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.reviewer_agent.run", run_reviewer
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.auditor_agent.run", run_auditor
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +441,9 @@ async def test_interactive_audit_failure_feedback_then_pass(monkeypatch, sample_
         sample_cv,
         auditor_result=[_make_failing_audit(), _make_passing_audit()],
     )
-    monkeypatch.setattr("resume_tailorator.workflows.agents.writer_agent.run", run_writer_capture)
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.writer_agent.run", run_writer_capture
+    )
 
     responses = iter(["f", "Emphasize Python and avoid leverage"])
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
@@ -433,7 +459,9 @@ async def test_interactive_audit_failure_feedback_then_pass(monkeypatch, sample_
 
 
 @pytest.mark.anyio
-async def test_interactive_audit_failure_feedback_still_fails_then_continue(monkeypatch, sample_cv):
+async def test_interactive_audit_failure_feedback_still_fails_then_continue(
+    monkeypatch, sample_cv
+):
     """After feedback retry still fails, only c/q offered; choosing 'c' completes normally."""
     _base_agent_mocks(
         monkeypatch,
@@ -452,7 +480,9 @@ async def test_interactive_audit_failure_feedback_still_fails_then_continue(monk
 
 
 @pytest.mark.anyio
-async def test_interactive_audit_failure_feedback_still_fails_then_quit(monkeypatch, sample_cv):
+async def test_interactive_audit_failure_feedback_still_fails_then_quit(
+    monkeypatch, sample_cv
+):
     """After feedback retry still fails, choosing 'q' at second checkpoint raises UserAbortedError."""
     from resume_tailorator.workflows import UserAbortedError
 
@@ -536,8 +566,12 @@ async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_c
         sample_cv,
         auditor_result=_make_passing_audit(),
     )
-    monkeypatch.setattr("resume_tailorator.workflows.agents.writer_agent.run", run_writer_capture)
-    monkeypatch.setattr("resume_tailorator.workflows.agents.report_agent.run", run_report_alternating)
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.writer_agent.run", run_writer_capture
+    )
+    monkeypatch.setattr(
+        "resume_tailorator.workflows.agents.report_agent.run", run_report_alternating
+    )
 
     responses = iter(["f", "emphasize Python"])
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
@@ -553,7 +587,9 @@ async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_c
 
 
 @pytest.mark.anyio
-async def test_interactive_weak_match_feedback_still_weak_then_continue(monkeypatch, sample_cv):
+async def test_interactive_weak_match_feedback_still_weak_then_continue(
+    monkeypatch, sample_cv
+):
     """After feedback retry still Weak Match, second checkpoint offers only c/q; 'c' completes."""
     _base_agent_mocks(
         monkeypatch,
