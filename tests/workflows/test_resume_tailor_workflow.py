@@ -120,8 +120,10 @@ async def test_analyst_failure_after_retries_exits(monkeypatch, sample_cv) -> No
 # Task 1: UserAbortedError + interactive param
 # ---------------------------------------------------------------------------
 
+
 def test_user_aborted_error_is_exception():
     from resume_tailorator.workflows import UserAbortedError
+
     err = UserAbortedError("test")
     assert isinstance(err, Exception)
 
@@ -139,6 +141,7 @@ def test_workflow_accepts_interactive_true():
 # ---------------------------------------------------------------------------
 # Task 2: _human_checkpoint
 # ---------------------------------------------------------------------------
+
 
 def test_checkpoint_non_interactive_returns_default():
     workflow = ResumeTailorWorkflow(interactive=False)
@@ -346,10 +349,12 @@ def _base_agent_mocks(monkeypatch, sample_cv, *, auditor_result, report_narrativ
             call_idx["n"] += 1
             return DummyRunResult(auditor_result[idx])
     else:
+
         async def run_auditor(*args, **kwargs):
             return DummyRunResult(auditor_result)
 
     if report_narrative is not None:
+
         async def run_report(*args, **kwargs):
             return DummyRunResult(report_narrative)
 
@@ -380,6 +385,7 @@ def _base_agent_mocks(monkeypatch, sample_cv, *, auditor_result, report_narrativ
 # ---------------------------------------------------------------------------
 # Task 4: Hook 1 — audit failure
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_non_interactive_never_prompts(monkeypatch, sample_cv):
@@ -504,6 +510,7 @@ async def test_interactive_audit_failure_feedback_still_fails_then_quit(
 # ---------------------------------------------------------------------------
 # Task 5: Hook 2 — weak match
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.anyio
 async def test_interactive_weak_match_quit(monkeypatch, sample_cv):

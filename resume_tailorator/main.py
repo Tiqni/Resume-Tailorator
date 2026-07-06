@@ -237,12 +237,17 @@ async def _run_workflow(
         )
     except UserAbortedError as e:
         console.print(f"[yellow]🚫 {e}[/yellow]")
-        return 1, None, None, ResumeTailorResult(
-            company_name="",
-            job_title="",
-            tailored_resume="",
-            audit_report={},
-            passed=False,
+        return (
+            1,
+            None,
+            None,
+            ResumeTailorResult(
+                company_name="",
+                job_title="",
+                tailored_resume="",
+                audit_report={},
+                passed=False,
+            ),
         )
 
     resume_path = None

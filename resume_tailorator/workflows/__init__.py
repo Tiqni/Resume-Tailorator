@@ -534,7 +534,9 @@ Focus on better highlighting relevant experience and incorporating job keywords 
                             )
                             if refined_result.output:
                                 new_cv = refined_result.output
-                                self._reporter.log("   ✅ CV refined based on feedback\n")
+                                self._reporter.log(
+                                    "   ✅ CV refined based on feedback\n"
+                                )
                             else:
                                 self._reporter.log(
                                     "   ⚠️ Refinement returned None, keeping current CV\n"
@@ -542,7 +544,9 @@ Focus on better highlighting relevant experience and incorporating job keywords 
                                 break
                         else:
                             if review.needs_improvement:
-                                self._reporter.log("   ℹ️ Max review iterations reached\n")
+                                self._reporter.log(
+                                    "   ℹ️ Max review iterations reached\n"
+                                )
                             else:
                                 self._reporter.log("   ✅ Quality check passed!\n")
                             break
@@ -623,7 +627,9 @@ Compare the two structured CVs carefully. Ensure that:
                     )
                     break  # exit loop — report phase runs below
                 else:
-                    self._reporter.log(f"   ⚠️ Audit failed on attempt {write_attempt + 1}")
+                    self._reporter.log(
+                        f"   ⚠️ Audit failed on attempt {write_attempt + 1}"
+                    )
                     if write_attempt < self.max_write_attempts - 1:
                         self._reporter.log("   🔄 Will retry with feedback...\n")
                     else:
@@ -668,7 +674,7 @@ Compare the two structured CVs carefully. Ensure that:
                         f"Hallucination score: {audit.hallucination_score}/10"
                     )
                     hook1_details.append(f"AI cliché score: {audit.ai_cliche_score}/10")
-                    for issue in (getattr(audit, "issues", []) or []):
+                    for issue in getattr(audit, "issues", []) or []:
                         sev = getattr(issue, "severity", "Unknown")
                         issue_text = getattr(issue, "issue", str(issue))
                         hook1_details.append(f"  [{sev}] {issue_text}")
@@ -710,7 +716,9 @@ Compare the two structured CVs carefully. Ensure that:
                 )
 
                 cv_diff = (
-                    compute_cv_diff(original_cv, new_cv) if new_cv is not None else CVDiff()
+                    compute_cv_diff(original_cv, new_cv)
+                    if new_cv is not None
+                    else CVDiff()
                 )
                 gap_analysis = compute_gap_analysis(
                     original_cv,
@@ -779,7 +787,10 @@ Job Analysis: {job_data_json}
                     if feedback_attempts_remaining > 0:
                         hook2_choices = [
                             ("c", "Continue and save anyway"),
-                            ("f", "Provide feedback/solution and re-run tailoring once"),
+                            (
+                                "f",
+                                "Provide feedback/solution and re-run tailoring once",
+                            ),
                             ("q", "Quit without saving"),
                         ]
                     else:

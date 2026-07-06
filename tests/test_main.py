@@ -317,6 +317,7 @@ async def test_tailor_impl_interactive_flag_wired_through(
     monkeypatch.chdir(tmp_path)
 
     from tests.factories import make_cv, make_result, make_scraped_job
+
     cv = make_cv()
     workflow_result = make_result(cv=cv, passed=True)
 
@@ -345,9 +346,7 @@ async def test_tailor_impl_interactive_flag_wired_through(
             MagicMock(
                 return_value=MagicMock(
                     aresolve_original_resume=AsyncMock(
-                        return_value=MagicMock(
-                            source=MagicMock(id="s"), cv=cv
-                        )
+                        return_value=MagicMock(source=MagicMock(id="s"), cv=cv)
                     ),
                     save_tailored_resume=MagicMock(return_value=MagicMock(id="j")),
                 )
@@ -355,6 +354,7 @@ async def test_tailor_impl_interactive_flag_wired_through(
         ),
     ):
         from resume_tailorator.main import _tailor_impl
+
         await _tailor_impl(
             job_url="https://example.com/job/123",
             resume_path=str(resume_file),
