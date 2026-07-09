@@ -4,6 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Resume Tailorator is a `pydantic-ai` multi-agent CLI that scrapes a job posting, tailors a resume to it without inventing facts, audits for hallucinations/clichés, and writes a self-review report.
 
+## Before pushing (MANDATORY)
+
+**Always** run the full lint + format + test gate and confirm it passes **before every `git push` or PR** — no exceptions, whether or not the user reminds you:
+
+```bash
+uv run ruff format . && uv run ruff check --fix . && uv run ruff format --check . && uv run ruff check . && uv run pytest
+```
+
+`ruff format .` and `ruff check --fix .` auto-fix what they can; the `--check`/no-`--fix` reruns then fail loudly on anything left. Do not push if any step is non-zero — CI enforces `ruff check`, `ruff format --check`, and pytest (the pytest step runs under `set -o pipefail`, so its `tee` does **not** mask a failing exit code).
+
 ## Commands
 
 Always use `uv` — never bare `python`, `python3`, or `pip`.
