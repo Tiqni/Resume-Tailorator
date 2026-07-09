@@ -18,6 +18,25 @@ class DummyRunResult:
         self.output = output
 
 
+class _FakeStdin:
+    """stdin stub with a controllable ``isatty()``.
+
+    Patch ``sys.stdin`` with this instead of ``sys.stdin.isatty`` directly —
+    ``isatty`` is a read-only attribute on some Python builds, so setting it
+    can raise.
+    """
+
+    def __init__(self, is_tty: bool):
+        self._is_tty = is_tty
+
+    def isatty(self) -> bool:
+        return self._is_tty
+
+
+def _patch_stdin(monkeypatch, *, is_tty: bool) -> None:
+    monkeypatch.setattr("sys.stdin", _FakeStdin(is_tty))
+
+
 @pytest.mark.anyio
 async def test_workflow_uses_provided_original_cv_without_reparsing(
     monkeypatch, sample_cv, subtests
@@ -168,7 +187,7 @@ def test_checkpoint_non_interactive_custom_default():
 
 
 def test_checkpoint_non_tty_returns_default(monkeypatch):
-    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    _patch_stdin(monkeypatch, is_tty=False)
     workflow = ResumeTailorWorkflow(interactive=True)
     action, feedback = workflow._human_checkpoint(
         header="Test",
@@ -180,7 +199,7 @@ def test_checkpoint_non_tty_returns_default(monkeypatch):
 
 
 def test_checkpoint_non_tty_input_never_called(monkeypatch):
-    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    _patch_stdin(monkeypatch, is_tty=False)
     monkeypatch.setattr(
         "builtins.input",
         lambda _: (_ for _ in ()).throw(AssertionError("input called")),
@@ -193,7 +212,7 @@ def test_checkpoint_non_tty_input_never_called(monkeypatch):
 
 
 def test_checkpoint_quit_choice(monkeypatch):
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: "q")
     workflow = ResumeTailorWorkflow(interactive=True)
     action, feedback = workflow._human_checkpoint(
@@ -207,7 +226,7 @@ def test_checkpoint_quit_choice(monkeypatch):
 
 def test_checkpoint_invalid_then_valid_input(monkeypatch):
     responses = iter(["x", "q"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
     workflow = ResumeTailorWorkflow(interactive=True)
     action, feedback = workflow._human_checkpoint(
@@ -221,7 +240,7 @@ def test_checkpoint_invalid_then_valid_input(monkeypatch):
 
 def test_checkpoint_empty_feedback_re_prompts(monkeypatch):
     responses = iter(["f", "", "my instructions"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
     workflow = ResumeTailorWorkflow(interactive=True)
     action, feedback = workflow._human_checkpoint(
@@ -235,7 +254,7 @@ def test_checkpoint_empty_feedback_re_prompts(monkeypatch):
 
 def test_checkpoint_feedback_returned_directly(monkeypatch):
     responses = iter(["f", "emphasize Python"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
     workflow = ResumeTailorWorkflow(interactive=True)
     action, feedback = workflow._human_checkpoint(
@@ -409,7 +428,7 @@ async def test_interactive_audit_failure_quit(monkeypatch, sample_cv):
     """With interactive=True and audit failure, choosing 'q' raises UserAbortedError."""
     from resume_tailorator.workflows import UserAbortedError
 
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: "q")
     _base_agent_mocks(monkeypatch, sample_cv, auditor_result=_make_failing_audit())
 
@@ -422,7 +441,7 @@ async def test_interactive_audit_failure_quit(monkeypatch, sample_cv):
 @pytest.mark.anyio
 async def test_interactive_audit_failure_continue(monkeypatch, sample_cv):
     """With interactive=True and audit failure, choosing 'c' completes the run (passed=False)."""
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: "c")
     _base_agent_mocks(monkeypatch, sample_cv, auditor_result=_make_failing_audit())
 
@@ -451,7 +470,7 @@ async def test_interactive_audit_failure_feedback_then_pass(monkeypatch, sample_
     )
 
     responses = iter(["f", "Emphasize Python and avoid leverage"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
@@ -475,7 +494,7 @@ async def test_interactive_audit_failure_feedback_still_fails_then_continue(
     )
 
     responses = iter(["f", "my instructions", "c"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
@@ -498,7 +517,7 @@ async def test_interactive_audit_failure_feedback_still_fails_then_quit(
     )
 
     responses = iter(["f", "my instructions", "q"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     with pytest.raises(UserAbortedError):
@@ -517,7 +536,7 @@ async def test_interactive_weak_match_quit(monkeypatch, sample_cv):
     """Audit passes but Weak Match report → 'q' raises UserAbortedError."""
     from resume_tailorator.workflows import UserAbortedError
 
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: "q")
     _base_agent_mocks(
         monkeypatch,
@@ -535,7 +554,7 @@ async def test_interactive_weak_match_quit(monkeypatch, sample_cv):
 @pytest.mark.anyio
 async def test_interactive_weak_match_continue(monkeypatch, sample_cv):
     """Audit passes but Weak Match report → 'c' completes run."""
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: "c")
     _base_agent_mocks(
         monkeypatch,
@@ -580,7 +599,7 @@ async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_c
     )
 
     responses = iter(["f", "emphasize Python"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
@@ -605,7 +624,7 @@ async def test_interactive_weak_match_feedback_still_weak_then_continue(
     )
 
     responses = iter(["f", "my instructions", "c"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    _patch_stdin(monkeypatch, is_tty=True)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
@@ -617,7 +636,7 @@ async def test_interactive_weak_match_feedback_still_weak_then_continue(
 @pytest.mark.anyio
 async def test_checkpoint_non_tty_auto_continues(monkeypatch, sample_cv):
     """With non-TTY stdin, checkpoints auto-continue regardless of interactive flag."""
-    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    _patch_stdin(monkeypatch, is_tty=False)
     monkeypatch.setattr(
         "builtins.input",
         lambda _: (_ for _ in ()).throw(AssertionError("input() called on non-TTY")),

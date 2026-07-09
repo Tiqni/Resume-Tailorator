@@ -679,20 +679,32 @@ Compare the two structured CVs carefully. Ensure that:
                         issue_text = getattr(issue, "issue", str(issue))
                         hook1_details.append(f"  [{sev}] {issue_text}")
 
+                # The audit may be missing entirely (e.g. quality gate exhausted
+                # with no fallback), in which case "audit-failed" wording is
+                # inaccurate — use generic phrasing when there is no audit result.
+                if audit:
+                    hook1_header = "⚠️  CV Audit Failed — all retry attempts exhausted."
+                    continue_label = "Continue and save the audit-failed result"
+                else:
+                    hook1_header = (
+                        "⚠️  CV Audit Unavailable — quality checks could not complete."
+                    )
+                    continue_label = "Continue and save the current result"
+
                 if feedback_attempts_remaining > 0:
                     hook1_choices = [
-                        ("c", "Continue and save the audit-failed result"),
+                        ("c", continue_label),
                         ("f", "Provide feedback/solution and retry once"),
                         ("q", "Quit without saving"),
                     ]
                 else:
                     hook1_choices = [
-                        ("c", "Continue and save the audit-failed result"),
+                        ("c", continue_label),
                         ("q", "Quit without saving"),
                     ]
 
                 action, feedback_text = self._human_checkpoint(
-                    header="⚠️  CV Audit Failed — all retry attempts exhausted.",
+                    header=hook1_header,
                     details=hook1_details,
                     choices=hook1_choices,
                     default="c",

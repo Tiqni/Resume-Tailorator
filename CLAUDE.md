@@ -12,7 +12,7 @@ Resume Tailorator is a `pydantic-ai` multi-agent CLI that scrapes a job posting,
 uv run ruff format . && uv run ruff check --fix . && uv run ruff format --check . && uv run ruff check . && uv run pytest
 ```
 
-`ruff format .` and `ruff check --fix .` auto-fix what they can; the `--check`/no-`--fix` reruns then fail loudly on anything left. Do not push if any step is non-zero — CI enforces `ruff check` and `ruff format --check`, and its `tee` pipe can mask a red result, so trust your local run, not the CI checkmark.
+`ruff format .` and `ruff check --fix .` auto-fix what they can; the `--check`/no-`--fix` reruns then fail loudly on anything left. Do not push if any step is non-zero — CI enforces `ruff check`, `ruff format --check`, and pytest (the pytest step runs under `set -o pipefail`, so its `tee` does **not** mask a failing exit code).
 
 ## Commands
 
