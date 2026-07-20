@@ -8,8 +8,13 @@ import pytest
 from typer.testing import CliRunner
 
 from resume_tailorator.main import app
-from resume_tailorator.models.agents.output import CV, WorkExperience, ScrapedJobPosting
+from resume_tailorator.models.agents.output import CV, WorkExperience
 from resume_tailorator.models.workflow import ResumeTailorResult
+from resume_tailorator.tools.job_scraper import RawScrape
+
+CLEANED_JOB_MD = (
+    "# Senior Software Engineer\n\nRequirements: Python, distributed systems."
+)
 
 runner = CliRunner()
 
@@ -68,17 +73,6 @@ def _make_result(cv: CV | None = None, passed: bool = True) -> ResumeTailorResul
     )
 
 
-def _make_scraped_job(
-    markdown: str = "# Job Posting\nPython engineer",
-) -> ScrapedJobPosting:
-    return ScrapedJobPosting(
-        markdown=markdown,
-        url="https://example.com/job/123",
-        source_text="Raw job posting text",
-        extraction_strategy="test",
-    )
-
-
 def test_tailor_command_success(tmp_path, monkeypatch) -> None:
     """tailor command with valid inputs should succeed and show output."""
     resume_file = tmp_path / "resume.md"
@@ -98,12 +92,20 @@ def test_tailor_command_success(tmp_path, monkeypatch) -> None:
         return_value=str(output_dir / "tailored_resume_acme_corp.md")
     )
 
-    scraped_job = _make_scraped_job()
-
     with (
         patch(
+            "resume_tailorator.main.fetch_job_markdown",
+            AsyncMock(
+                return_value=RawScrape(
+                    markdown_raw="raw body markdown",
+                    source_text="<html>...</html>",
+                    extraction_strategy="markitdown",
+                )
+            ),
+        ),
+        patch(
             "resume_tailorator.main.job_scraper_agent.run",
-            AsyncMock(return_value=MagicMock(output=scraped_job)),
+            AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch(
             "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
@@ -201,9 +203,9 @@ def test_tailor_command_scraping_failure(tmp_path, monkeypatch) -> None:
 
     monkeypatch.chdir(tmp_path)
 
-    mock_scraper = AsyncMock(side_effect=Exception("Network error"))
+    mock_fetch = AsyncMock(side_effect=Exception("Network error"))
 
-    with patch("resume_tailorator.main.job_scraper_agent.run", mock_scraper):
+    with patch("resume_tailorator.main.fetch_job_markdown", mock_fetch):
         result = runner.invoke(
             app,
             [
@@ -238,12 +240,20 @@ def test_tailor_command_failed_audit_exits_zero(tmp_path, monkeypatch) -> None:
         return_value=str(output_dir / "tailored_resume_acme_corp.md")
     )
 
-    scraped_job = _make_scraped_job()
-
     with (
         patch(
+            "resume_tailorator.main.fetch_job_markdown",
+            AsyncMock(
+                return_value=RawScrape(
+                    markdown_raw="raw body markdown",
+                    source_text="<html>...</html>",
+                    extraction_strategy="markitdown",
+                )
+            ),
+        ),
+        patch(
             "resume_tailorator.main.job_scraper_agent.run",
-            AsyncMock(return_value=MagicMock(output=scraped_job)),
+            AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch(
             "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
@@ -292,11 +302,21 @@ def test_tailor_command_empty_job_content(tmp_path, monkeypatch) -> None:
 
     monkeypatch.chdir(tmp_path)
 
-    scraped_job = _make_scraped_job(markdown="")
-
-    with patch(
-        "resume_tailorator.main.job_scraper_agent.run",
-        AsyncMock(return_value=MagicMock(output=scraped_job)),
+    with (
+        patch(
+            "resume_tailorator.main.fetch_job_markdown",
+            AsyncMock(
+                return_value=RawScrape(
+                    markdown_raw="raw body markdown",
+                    source_text="<html>...</html>",
+                    extraction_strategy="markitdown",
+                )
+            ),
+        ),
+        patch(
+            "resume_tailorator.main.job_scraper_agent.run",
+            AsyncMock(return_value=MagicMock(output="")),
+        ),
     ):
         result = runner.invoke(
             app,
@@ -341,12 +361,20 @@ def test_tailor_command_docx_conversion(tmp_path, monkeypatch) -> None:
         return_value=str(output_dir / "tailored_resume_acme_corp.md")
     )
 
-    scraped_job = _make_scraped_job()
-
     with (
         patch(
+            "resume_tailorator.main.fetch_job_markdown",
+            AsyncMock(
+                return_value=RawScrape(
+                    markdown_raw="raw body markdown",
+                    source_text="<html>...</html>",
+                    extraction_strategy="markitdown",
+                )
+            ),
+        ),
+        patch(
             "resume_tailorator.main.job_scraper_agent.run",
-            AsyncMock(return_value=MagicMock(output=scraped_job)),
+            AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch(
             "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow
@@ -691,12 +719,20 @@ def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
         captured_args["base_filename"] = base_filename
         return os.path.join(output_dir, f"{base_filename}.md")
 
-    scraped_job = _make_scraped_job()
-
     with (
         patch(
+            "resume_tailorator.main.fetch_job_markdown",
+            AsyncMock(
+                return_value=RawScrape(
+                    markdown_raw="raw body markdown",
+                    source_text="<html>...</html>",
+                    extraction_strategy="markitdown",
+                )
+            ),
+        ),
+        patch(
             "resume_tailorator.main.job_scraper_agent.run",
-            AsyncMock(return_value=MagicMock(output=scraped_job)),
+            AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch(
             "resume_tailorator.main.ResumeTailorWorkflow", return_value=mock_workflow

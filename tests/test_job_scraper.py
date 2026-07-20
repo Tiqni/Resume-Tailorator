@@ -1,16 +1,16 @@
-"""Tests for job scraper agent and integration.
+"""Tests for the job scraper cleanup agent and related integration.
 
-Comprehensive tests for JobScraperAgent, including:
-- Successful scraping with valid HTML
-- Placeholder detection triggering retry
-- Markdown parsing with fallback strategies
-- URL validation
-- Extraction quality scoring
+Covers:
+- The thin Markdown-cleanup agent (str -> str)
+- Placeholder detection helpers used by the deterministic quality gate
 - CLI integration with URL and environment variables
+- The ScrapedJobPosting data model
+
+Deterministic fetch/convert/URL-validation tests live in
+``tests/test_job_scraper_fetch.py``.
 """
 
 import os
-import pytest
 from pydantic_ai import models
 from pydantic_ai.models.test import TestModel
 
@@ -19,92 +19,14 @@ from resume_tailorator.tools.job_scraper_helpers import (
     detect_placeholder_content,
     clean_job_posting_markdown,
 )
-
-from importlib.util import find_spec
-
-HAS_PLAYWRIGHT = find_spec("playwright") is not None
+from resume_tailorator.workflows.agents import job_scraper_agent
 
 # Ensure model requests are blocked (test mode only)
 models.ALLOW_MODEL_REQUESTS = False
 
-# Import agent and tools only if playwright is available
-if HAS_PLAYWRIGHT:
-    from resume_tailorator.workflows.agents import (
-        job_scraper_agent,
-        validate_extraction,
-    )
-else:
-    # Define dummy validate_extraction for non-agent tests
-    def validate_extraction(raw_html: str, extracted_markdown: str) -> dict:
-        """Dummy validate_extraction for when playwright not available."""
-        raise RuntimeError("playwright not installed")
-
 
 # --- Test Data ---
 
-REALISTIC_JOB_HTML = """\
-<!DOCTYPE html>
-<html>
-<head><title>Senior Software Engineer</title></head>
-<body>
-<h1>Senior Software Engineer</h1>
-<p><strong>Company:</strong> TechCorp Inc.</p>
-<p><strong>Location:</strong> San Francisco, CA (Remote)</p>
-<p><strong>Salary:</strong> $180K-$220K</p>
-
-<h2>About the Role</h2>
-<p>We're seeking an experienced Senior Software Engineer to join our platform team. 
-You'll design and build scalable backend systems serving millions of users.</p>
-
-<h2>Requirements</h2>
-<ul>
-<li>7+ years of software engineering experience</li>
-<li>Strong proficiency in Python, Go, or Rust</li>
-<li>Experience with distributed systems and microservices</li>
-<li>Deep knowledge of database design and optimization</li>
-<li>Leadership experience mentoring junior engineers</li>
-<li>BS in Computer Science or equivalent</li>
-</ul>
-
-<h2>What We Offer</h2>
-<ul>
-<li>Competitive salary and equity</li>
-<li>Comprehensive health benefits</li>
-<li>Professional development budget</li>
-<li>Flexible work arrangements</li>
-</ul>
-
-<p>Apply at careers@techcorp.com or submit via LinkedIn.</p>
-</body>
-</html>\
-"""
-
-PLACEHOLDER_HTML = """\
-<!DOCTYPE html>
-<html>
-<head><title>Error</title></head>
-<body>
-<h1>Page Not Found</h1>
-<script>console.log('error');</script>
-<p>The job posting you're looking for could not be found.</p>
-<p>404 error</p>
-</body>
-</html>\
-"""
-
-MINIMAL_JOB_HTML = """\
-<!DOCTYPE html>
-<html>
-<body>
-<h1>Frontend Developer</h1>
-<p>Join our team! We need a frontend developer.</p>
-<p>Requirements: JavaScript, React, CSS</p>
-<p>Apply now at jobs@example.com</p>
-</body>
-</html>\
-"""
-
-SHORT_CONTENT = "This is too short"
 REALISTIC_EXTRACTED_MARKDOWN = """\
 # Senior Software Engineer
 
@@ -137,333 +59,23 @@ Apply at careers@techcorp.com or submit via LinkedIn.
 """
 
 
-@pytest.mark.skipif(not HAS_PLAYWRIGHT, reason="playwright not installed")
-class TestJobScraperAgent:
-    """Tests for JobScraperAgent."""
+class TestJobScraperCleanupAgent:
+    """The scrape agent now cleans already-converted Markdown (str -> str)."""
 
-    def test_successful_scraping_with_test_model(self):
-        """Test successful job posting scraping with TestModel.
-
-        Verifies that the agent can successfully scrape and extract job posting
-        content into the ScrapedJobPosting model with all required fields.
-        """
-        # Override with TestModel for deterministic output
+    def test_returns_cleaned_markdown_string(self):
         with job_scraper_agent.override(
-            model=TestModel(
-                call_tools=[],
-                custom_output_args=ScrapedJobPosting(
-                    url="https://example.com/job/123",
-                    markdown=REALISTIC_EXTRACTED_MARKDOWN,
-                    source_text="raw html content",
-                    extraction_strategy="html2text",
-                ),
-            )
+            model=TestModel(custom_output_text=REALISTIC_EXTRACTED_MARKDOWN)
         ):
-            result = job_scraper_agent.run_sync(
-                "Scrape this job: https://example.com/job/123"
-            )
+            result = job_scraper_agent.run_sync(REALISTIC_EXTRACTED_MARKDOWN)
+        assert isinstance(result.output, str)
+        assert "Senior Software Engineer" in result.output
 
-            assert isinstance(result.output, ScrapedJobPosting)
-            assert result.output.url == "https://example.com/job/123"
-            assert len(result.output.markdown) > 0
-            assert "Senior Software Engineer" in result.output.markdown
-            assert result.output.extraction_strategy == "html2text"
-
-    def test_scraping_returns_non_empty_markdown(self):
-        """Test that scraped markdown content is substantial."""
+    def test_output_is_non_empty(self):
         with job_scraper_agent.override(
-            model=TestModel(
-                call_tools=[],
-                custom_output_args=ScrapedJobPosting(
-                    url="https://example.com/job/456",
-                    markdown=REALISTIC_EXTRACTED_MARKDOWN,
-                    source_text="<html>...</html>",
-                    extraction_strategy="markitdown",
-                ),
-            )
+            model=TestModel(custom_output_text=REALISTIC_EXTRACTED_MARKDOWN)
         ):
-            result = job_scraper_agent.run_sync("Scrape: https://example.com/job/456")
-
-            assert result.output.markdown.strip() != ""
-            assert len(result.output.markdown.strip()) > 100
-
-    def test_scraping_preserves_url(self):
-        """Test that the original URL is preserved in the output."""
-        test_url = "https://jobs.github.com/123"
-        with job_scraper_agent.override(
-            model=TestModel(
-                call_tools=[],
-                custom_output_args=ScrapedJobPosting(
-                    url=test_url,
-                    markdown="Job content here" * 20,
-                    source_text="<html>content</html>",
-                    extraction_strategy="html2text",
-                ),
-            )
-        ):
-            result = job_scraper_agent.run_sync(f"Scrape: {test_url}")
-
-            assert result.output.url == test_url
-
-    def test_scraping_with_different_strategies(self):
-        """Test that extraction strategy field is properly populated."""
-        strategies = ["html2text", "markitdown", "playwright_llm"]
-
-        for strategy in strategies:
-            with job_scraper_agent.override(
-                model=TestModel(
-                    call_tools=[],
-                    custom_output_args=ScrapedJobPosting(
-                        url="https://example.com/job",
-                        markdown=REALISTIC_EXTRACTED_MARKDOWN,
-                        source_text="<html>...</html>",
-                        extraction_strategy=strategy,
-                    ),
-                )
-            ):
-                result = job_scraper_agent.run_sync("Scrape: https://example.com/job")
-
-                assert result.output.extraction_strategy == strategy
-
-
-@pytest.mark.skipif(not HAS_PLAYWRIGHT, reason="playwright not installed")
-class TestValidateExtraction:
-    """Tests for validate_extraction tool."""
-
-    def test_valid_extraction_passes(self):
-        """Test that valid extraction passes validation."""
-        result = validate_extraction(
-            raw_html=REALISTIC_JOB_HTML,
-            extracted_markdown=REALISTIC_EXTRACTED_MARKDOWN,
-        )
-
-        assert result["valid"] is True
-        assert result["message"] == "Extraction meets quality thresholds"
-        assert 0 <= result["quality_score"] <= 100
-
-    def test_valid_extraction_quality_score_range(self):
-        """Test that quality score is always in valid range."""
-        result = validate_extraction(
-            raw_html=REALISTIC_JOB_HTML,
-            extracted_markdown=REALISTIC_EXTRACTED_MARKDOWN,
-        )
-
-        assert isinstance(result["quality_score"], int)
-        assert 0 <= result["quality_score"] <= 100
-
-    def test_valid_extraction_with_short_markdown(self):
-        """Test that extraction with minimum valid length passes."""
-        # Create markdown that's exactly 200 characters
-        short_markdown = "x" * 200
-
-        result = validate_extraction(
-            raw_html="<html>" + "y" * 100 + "</html>",
-            extracted_markdown=short_markdown,
-        )
-
-        assert result["valid"] is True
-
-    def test_missing_html_raises_retry(self):
-        """Test that missing HTML triggers ModelRetry."""
-        from pydantic_ai import ModelRetry
-
-        with pytest.raises(ModelRetry):
-            validate_extraction(
-                raw_html="",
-                extracted_markdown=REALISTIC_EXTRACTED_MARKDOWN,
-            )
-
-    def test_missing_markdown_raises_retry(self):
-        """Test that missing markdown triggers ModelRetry."""
-        from pydantic_ai import ModelRetry
-
-        with pytest.raises(ModelRetry):
-            validate_extraction(
-                raw_html=REALISTIC_JOB_HTML,
-                extracted_markdown="",
-            )
-
-    def test_placeholder_content_raises_retry(self):
-        """Test that placeholder content triggers ModelRetry."""
-        from pydantic_ai import ModelRetry
-
-        with pytest.raises(ModelRetry):
-            validate_extraction(
-                raw_html=PLACEHOLDER_HTML,
-                extracted_markdown="<script>error</script>" + " x" * 50,
-            )
-
-    def test_short_content_raises_retry(self):
-        """Test that content < 200 chars triggers ModelRetry."""
-        from pydantic_ai import ModelRetry
-
-        with pytest.raises(ModelRetry):
-            validate_extraction(
-                raw_html=MINIMAL_JOB_HTML,
-                extracted_markdown="This is too short" + " x" * 5,  # ~25 chars
-            )
-
-    def test_exactly_199_chars_raises_retry(self):
-        """Test that content at 199 chars triggers ModelRetry."""
-        from pydantic_ai import ModelRetry
-
-        with pytest.raises(ModelRetry):
-            validate_extraction(
-                raw_html="<html>content</html>",
-                extracted_markdown="x" * 199,
-            )
-
-    def test_exactly_200_chars_passes(self):
-        """Test that content at exactly 200 chars passes."""
-        result = validate_extraction(
-            raw_html="<html>content</html>",
-            extracted_markdown="x" * 200,
-        )
-
-        assert result["valid"] is True
-
-    def test_quality_score_scales_with_content_length(self):
-        """Test that quality score increases with content length."""
-        short_md = "x" * 200
-        long_md = "x" * 5000
-
-        result_short = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=short_md,
-        )
-
-        result_long = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=long_md,
-        )
-
-        # Long content should have higher or equal quality score
-        assert result_long["quality_score"] >= result_short["quality_score"]
-
-
-class TestURLValidation:
-    """Tests for URL validation in fetch_webpage tool."""
-
-    def test_valid_https_url_format(self):
-        """Test that valid HTTPS URL format is recognized."""
-        # Just verify the URL pattern - tool would be called in integration test
-        valid_urls = [
-            "https://example.com/job/123",
-            "https://jobs.github.com/positions/123",
-            "https://www.example.com/careers?id=456",
-        ]
-
-        for url in valid_urls:
-            # Verify URL has required format
-            assert url.startswith(("http://", "https://"))
-            assert isinstance(url, str)
-
-    def test_valid_http_url_format(self):
-        """Test that valid HTTP URL format is recognized."""
-        valid_urls = [
-            "http://example.com/job/123",
-            "http://jobs.example.com/positions/456",
-        ]
-
-        for url in valid_urls:
-            assert url.startswith(("http://", "https://"))
-
-    def test_invalid_url_no_protocol(self):
-        """Test that URL without protocol is invalid."""
-        invalid_url = "example.com/job/123"
-
-        assert not invalid_url.startswith(("http://", "https://"))
-
-    def test_invalid_url_wrong_protocol(self):
-        """Test that URL with wrong protocol is invalid."""
-        invalid_urls = [
-            "ftp://example.com/job",
-            "file:///path/to/job",
-            "gopher://example.com/job",
-        ]
-
-        for url in invalid_urls:
-            assert not url.startswith(("http://", "https://"))
-
-    def test_invalid_url_empty_string(self):
-        """Test that empty URL string is invalid."""
-        invalid_url = ""
-
-        assert not invalid_url.startswith(("http://", "https://"))
-
-    def test_invalid_url_none_raises_error(self):
-        """Test that None URL would raise error."""
-        # In actual tool, this would raise ValueError
-        url = None
-        assert url is None or not isinstance(url, str)
-
-
-@pytest.mark.skipif(not HAS_PLAYWRIGHT, reason="playwright not installed")
-class TestExtractionQualityScoring:
-    """Tests for quality scoring in validate_extraction."""
-
-    def test_quality_score_200_chars(self):
-        """Test quality score for minimum valid content (200 chars)."""
-        markdown = "x" * 200
-        result = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=markdown,
-        )
-
-        # 200 chars should have low but non-zero quality
-        assert 0 < result["quality_score"] < 50
-
-    def test_quality_score_1000_chars(self):
-        """Test quality score for moderate content (1000 chars)."""
-        markdown = "x" * 1000
-        result = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=markdown,
-        )
-
-        # 1000 chars should have moderate quality
-        assert 0 < result["quality_score"] < 100
-
-    def test_quality_score_5000_chars(self):
-        """Test quality score for substantial content (5000 chars)."""
-        markdown = "x" * 5000
-        result = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=markdown,
-        )
-
-        # 5000 chars should have high quality score
-        assert result["quality_score"] >= 95
-
-    def test_quality_score_over_5000_chars_capped_at_100(self):
-        """Test that quality score caps at 100."""
-        markdown = "x" * 10000
-        result = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=markdown,
-        )
-
-        # Should be capped at 100
-        assert result["quality_score"] == 100
-
-    def test_quality_score_includes_whitespace(self):
-        """Test that quality score considers total length including whitespace."""
-        # Content with significant whitespace
-        markdown_with_spaces = "word " * 200  # 1000 chars with spaces
-        markdown_no_spaces = "word" * 200  # 800 chars no spaces
-
-        result_spaces = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=markdown_with_spaces,
-        )
-
-        result_no_spaces = validate_extraction(
-            raw_html="<html>html</html>",
-            extracted_markdown=markdown_no_spaces,
-        )
-
-        # More characters should score higher
-        assert result_spaces["quality_score"] >= result_no_spaces["quality_score"]
+            result = job_scraper_agent.run_sync("# Some job\n\nlong body " * 20)
+        assert result.output.strip()
 
 
 class TestHelperFunctionsIntegration:

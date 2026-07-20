@@ -3,7 +3,6 @@
 from resume_tailorator.models.agents.output import (
     CV,
     WorkExperience,
-    ScrapedJobPosting,
     FinalReport,
     CVDiff,
     GapAnalysis,
@@ -56,16 +55,4 @@ def make_result(cv: CV | None = None, passed: bool = True) -> ResumeTailorResult
             recommendation_rationale="Good match",
             passed=passed,
         ),
-    )
-
-
-def make_scraped_job(
-    markdown: str = "# Senior Engineer at Acme Corp\n\nPython role.",
-    extraction_strategy: str = "test",
-) -> ScrapedJobPosting:
-    return ScrapedJobPosting(
-        markdown=markdown,
-        url="https://example.com/job/123",
-        source_text="Raw text",
-        extraction_strategy=extraction_strategy,
     )

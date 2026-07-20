@@ -1,10 +1,9 @@
 """Integration tests for job scraper within _tailor_impl().
 
 Coverage:
-- Scraper errors handled gracefully (timeout, network failure)
-- Empty scraper content detected and rejected
+- Deterministic fetch errors handled gracefully (timeout, network failure)
+- Empty cleanup output detected and rejected
 - Job posting content flows correctly to workflow
-- Unexpected scraper output type rejected
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,9 +11,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer import Exit as TyperExit
 
-from tests.factories import make_cv, make_result, make_scraped_job
+from resume_tailorator.tools.job_scraper import RawScrape
+from tests.factories import make_cv, make_result
 
 pytestmark = pytest.mark.anyio
+
+CLEANED_JOB_MD = (
+    "# Senior Software Engineer\n\nRequirements: Python, distributed systems."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -24,18 +28,18 @@ pytestmark = pytest.mark.anyio
 
 def _setup_mocks(
     *,
-    scraper_output: MagicMock | None = None,
-    scraper_error: BaseException | None = None,
+    cleaned_markdown: str | None = None,
+    fetch_error: BaseException | None = None,
     passed: bool = True,
     save_side_effect=None,
 ):
     """Set up mocks for _tailor_impl() dependencies.
 
-    Exactly one of scraper_output or scraper_error may be set.
+    Scraping is now a two-step flow: a deterministic ``fetch_job_markdown``
+    followed by the ``job_scraper_agent`` cleanup pass that returns a ``str``.
+    ``fetch_error`` simulates the deterministic fetch failing; ``cleaned_markdown``
+    sets the cleanup agent's string output (defaults to ``CLEANED_JOB_MD``).
     """
-    if scraper_output is not None and scraper_error is not None:
-        raise ValueError("scraper_output and scraper_error are mutually exclusive")
-
     cv = make_cv()
     workflow_result = make_result(passed=passed)
 
@@ -44,12 +48,19 @@ def _setup_mocks(
 
     mock_generate_resume = MagicMock(return_value="/fake/output/resume.md")
 
-    if scraper_error is not None:
-        mock_scraper_run = AsyncMock(side_effect=scraper_error)
-    elif scraper_output is not None:
-        mock_scraper_run = AsyncMock(return_value=scraper_output)
+    if fetch_error is not None:
+        mock_fetch = AsyncMock(side_effect=fetch_error)
     else:
-        mock_scraper_run = AsyncMock(return_value=MagicMock(output=make_scraped_job()))
+        mock_fetch = AsyncMock(
+            return_value=RawScrape(
+                markdown_raw="raw body markdown",
+                source_text="<html>...</html>",
+                extraction_strategy="markitdown",
+            )
+        )
+
+    agent_output = CLEANED_JOB_MD if cleaned_markdown is None else cleaned_markdown
+    mock_scraper_run = AsyncMock(return_value=MagicMock(output=agent_output))
 
     mock_svc = MagicMock()
     resolved = MagicMock()
@@ -65,11 +76,13 @@ def _setup_mocks(
     mocks = {
         "workflow": mock_workflow,
         "generate_resume": mock_generate_resume,
+        "fetch": mock_fetch,
         "scraper_run": mock_scraper_run,
         "service": mock_svc,
     }
 
     patches = [
+        patch("resume_tailorator.main.fetch_job_markdown", mock_fetch),
         patch("resume_tailorator.main.job_scraper_agent.run", mock_scraper_run),
         patch(
             "resume_tailorator.main.ResumeTailorWorkflow",
@@ -109,14 +122,19 @@ async def test_scraper_empty_output_rejected(tmp_path, monkeypatch) -> None:
 
     monkeypatch.chdir(tmp_path)
 
-    empty_job = make_scraped_job(markdown="   \n")
-    scraper_output = MagicMock(output=empty_job)
-
-    patches, mocks = _setup_mocks(scraper_output=scraper_output)
+    patches, mocks = _setup_mocks(cleaned_markdown="   \n")
 
     from resume_tailorator.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         with pytest.raises(TyperExit):
             await _tailor_impl(
                 job_url="https://example.com/job/empty",
@@ -140,12 +158,20 @@ async def test_scraper_timeout_handled(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 
     patches, mocks = _setup_mocks(
-        scraper_error=TimeoutError("Scraper exceeded 30s timeout")
+        fetch_error=TimeoutError("Scraper exceeded 30s timeout")
     )
 
     from resume_tailorator.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         with pytest.raises(TyperExit):
             await _tailor_impl(
                 job_url="https://slow-site.example.com/job",
@@ -169,12 +195,20 @@ async def test_scraper_network_error_handled(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 
     patches, mocks = _setup_mocks(
-        scraper_error=ConnectionError("Failed to connect to host")
+        fetch_error=ConnectionError("Failed to connect to host")
     )
 
     from resume_tailorator.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         with pytest.raises(TyperExit):
             await _tailor_impl(
                 job_url="https://nonexistent.example.com/job",
@@ -198,16 +232,21 @@ async def test_scraper_content_flows_to_workflow(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 
     expected_keyword = "Kubernetes-Experience-Required-12345"
-    scraped = make_scraped_job(
-        markdown=f"# Platform Engineer\n\nMust have: {expected_keyword}."
+    patches, mocks = _setup_mocks(
+        cleaned_markdown=f"# Platform Engineer\n\nMust have: {expected_keyword}."
     )
-    scraper_output = MagicMock(output=scraped)
-
-    patches, mocks = _setup_mocks(scraper_output=scraper_output)
 
     from resume_tailorator.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         await _tailor_impl(
             job_url="https://example.com/job/platform-engineer",
             resume_path=str(resume_file),
@@ -218,34 +257,3 @@ async def test_scraper_content_flows_to_workflow(tmp_path, monkeypatch) -> None:
     mocks["workflow"].run.assert_called_once()
     call_kwargs = mocks["workflow"].run.call_args.kwargs
     assert expected_keyword in call_kwargs.get("job_content", "")
-
-
-@pytest.mark.anyio
-async def test_scraper_unexpected_output_type_handled(tmp_path, monkeypatch) -> None:
-    """Exit when scraper returns non-ScrapedJobPosting output."""
-    resume_file = tmp_path / "resume.md"
-    resume_file.write_text("# Jane Doe\nPython developer.")
-
-    output_dir = tmp_path / "output"
-    output_dir.mkdir()
-
-    monkeypatch.chdir(tmp_path)
-
-    # Simulate scraper returning a raw string instead of ScrapedJobPosting
-    bad_output = MagicMock()
-    bad_output.output = "just a raw string, not a ScrapedJobPosting"
-
-    patches, mocks = _setup_mocks(scraper_output=bad_output)
-
-    from resume_tailorator.main import _tailor_impl
-
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
-        with pytest.raises(TyperExit):
-            await _tailor_impl(
-                job_url="https://example.com/job/broken",
-                resume_path=str(resume_file),
-                output_dir=str(output_dir),
-                model=None,
-            )
-
-    mocks["workflow"].run.assert_not_called()

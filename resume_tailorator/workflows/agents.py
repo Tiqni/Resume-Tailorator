@@ -28,11 +28,6 @@ from resume_tailorator.models.agents.output import (
     QualityCheckResult,
     ReviewResult,
     FinalReport,
-    ScrapedJobPosting,
-)
-from resume_tailorator.tools.playwright import read_job_content_file
-from resume_tailorator.tools.job_scraper_helpers import (
-    detect_placeholder_content,
 )
 from resume_tailorator.reporting.base import get_active_reporter
 
@@ -186,7 +181,7 @@ _AGENT_TIERS = {
     "Auditor": "strong",
     "Report": "strong",
     "Cover Letter Writer": "strong",
-    "Scraper": "strong",  # job_scraper_agent; wired in a later task
+    "Scraper": "fast",  # job_scraper_agent: cleanup pass on clean Markdown
 }
 
 
@@ -316,22 +311,6 @@ output is broken and must be regenerated.
 Always provide reasoning, and list specific improvements whenever the score is below 9.""",
     output_type=QualityCheckResult,
     retries=2,
-)
-
-# --- Agent 0: The Scraper ---
-# Responsibility: Fetch the job posting content.
-scraper_agent = Agent(
-    _DEFAULT_MODEL,
-    model_settings=MODEL_SETTINGS,
-    system_prompt="""
-    You are an expert Technical Recruiter.
-    Your job is to analyze a raw job posting and extract structured data.
-    Identify the core requirements, not just the 'nice to haves'.
-    Look for 'hidden' keywords that ATS systems might scan for.
-    """,
-    output_type=JobAnalysis,
-    tools=[read_job_content_file],
-    retries=5,
 )
 
 # --- Agent 1: The Job Analyst ---
@@ -604,174 +583,33 @@ async def _validate_auditor(ctx: RunContext[None], output: AuditResult) -> Audit
     return output
 
 
-# --- Agent: JobScraperAgent ---
-# Responsibility: Scrape job postings from URLs and validate extracted content.
 job_scraper_agent = Agent(
     _DEFAULT_MODEL,
     model_settings=MODEL_SETTINGS,
-    output_type=ScrapedJobPosting,
+    output_type=str,
     retries=3,
 )
 
 
 @job_scraper_agent.system_prompt
 async def build_scraper_instructions() -> str:
-    """Build system prompt for the job scraper agent."""
-    return """You are a job posting scraper and extractor.
+    """System prompt: isolate the job posting from already-clean Markdown."""
+    return """You clean up a job posting that has already been converted to Markdown.
 
-Your task: Extract job posting content from HTML and convert to markdown.
+The Markdown you receive is the FULL page body, so it surrounds the real posting
+with navigation, cookie/consent banners, search bars, "related jobs", social
+links, and footer boilerplate.
+
+Your task: return ONLY the job posting as clean Markdown.
 
 CRITICAL RULES:
-1. Never hallucinate job requirements, skills, or company info
-2. Extract ONLY what is visible in the HTML
-3. Use available tools in order:
-   a. fetch_webpage(url) - get the HTML
-   b. Try markitdown parsing first via extraction attempt
-   c. If content looks incomplete, call validate_extraction and retry
-4. Target output: Clean markdown with title, company, requirements
-5. Stop and report error if content cannot be extracted after retries
-
-QUALITY CHECKLIST:
-- Content not placeholder (no error messages, click here, etc)
-- Length > 200 chars (substantial job posting)
-- Markdown formatted cleanly (no excessive blank lines)
-- All required info present
-"""
-
-
-@job_scraper_agent.tool
-async def fetch_webpage(ctx: RunContext[None], url: str, timeout: int = 30) -> str:
-    """Fetch and execute webpage, returning HTML.
-
-    Uses Playwright to handle JavaScript-heavy job boards.
-    Returns raw HTML for parsing.
-
-    Args:
-        url: The job posting URL to fetch.
-        timeout: Max seconds to wait (default 30).
-
-    Returns:
-        HTML content of the page.
-
-    Raises:
-        ValueError: If URL is invalid or timeout occurs.
-    """
-    from playwright.async_api import async_playwright
-
-    logger.info(f"fetch_webpage_start: url={url}, timeout={timeout}")
-
-    try:
-        # Validate URL format
-        if not url or not isinstance(url, str):
-            raise ValueError(f"Invalid URL provided: {url}")
-
-        if not url.startswith(("http://", "https://")):
-            raise ValueError(f"URL must start with http:// or https://: {url}")
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-            page = await context.new_page()
-
-            try:
-                # Navigate to URL with timeout
-                await page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
-
-                # Wait for body element to ensure content is loaded
-                await page.wait_for_selector("body", timeout=timeout * 1000)
-
-                # Get page content
-                html_content = await page.content()
-
-                logger.info(
-                    f"fetch_webpage_success: url={url}, content_length={len(html_content)}"
-                )
-                return html_content
-
-            except Exception as e:
-                error_msg = f"Error navigating to {url}: {str(e)}"
-                logger.error(
-                    f"fetch_webpage_error: url={url}, error={str(e)}, error_type={type(e).__name__}"
-                )
-                raise ValueError(error_msg) from e
-
-            finally:
-                await browser.close()
-
-    except ValueError:
-        raise
-    except Exception as e:
-        error_msg = f"Unexpected error fetching webpage {url}: {str(e)}"
-        logger.error(
-            f"fetch_webpage_unexpected_error: url={url}, error={str(e)}, error_type={type(e).__name__}"
-        )
-        raise ValueError(error_msg) from e
-
-
-@job_scraper_agent.tool_plain
-def validate_extraction(raw_html: str, extracted_markdown: str) -> dict:
-    """Validate extracted content meets quality thresholds.
-
-    Checks:
-    - Extracted markdown is not placeholder content (via helper)
-    - Markdown length > 200 characters (substantial content)
-    - Both source and extraction provided
-
-    Args:
-        raw_html: Original HTML content.
-        extracted_markdown: Parsed markdown from HTML.
-
-    Returns:
-        dict with keys: valid (bool), message (str), quality_score (int, 0-100)
-
-    Raises:
-        ModelRetry: If validation fails, signals agent to retry.
-    """
-    logger.info(
-        f"validate_extraction_start: html_length={len(raw_html) if raw_html else 0}, "
-        f"markdown_length={len(extracted_markdown) if extracted_markdown else 0}"
-    )
-
-    # Check for presence of content
-    if not raw_html or not extracted_markdown:
-        msg = "Missing source HTML or extracted markdown"
-        logger.warning(f"validate_extraction_missing_content: message={msg}")
-        raise ModelRetry(msg)
-
-    # Check for placeholder content
-    if detect_placeholder_content(extracted_markdown):
-        msg = "Extracted content appears to be placeholder/error content"
-        logger.warning(
-            f"validate_extraction_placeholder_detected: message={msg}, extracted_length={len(extracted_markdown)}"
-        )
-        raise ModelRetry(msg)
-
-    # Check minimum length threshold
-    if len(extracted_markdown.strip()) < 200:
-        msg = f"Extracted content too short ({len(extracted_markdown.strip())} chars, need > 200)"
-        logger.warning(
-            f"validate_extraction_too_short: message={msg}, extracted_length={len(extracted_markdown.strip())}"
-        )
-        raise ModelRetry(msg)
-
-    # Calculate quality score (0-100)
-    markdown_len = len(extracted_markdown.strip())
-    content_score = min(
-        100, int((markdown_len / 5000) * 100)
-    )  # Scale by typical job posting size
-
-    result = {
-        "valid": True,
-        "message": "Extraction meets quality thresholds",
-        "quality_score": content_score,
-    }
-
-    logger.info(
-        f"validate_extraction_success: quality_score={content_score}, markdown_length={markdown_len}"
-    )
-    return result
+1. Never invent or add information. Only keep and lightly tidy what is present.
+2. Remove site chrome: nav menus, cookie/consent banners, search bars,
+   related/similar jobs, social/share links, and footers.
+3. Keep the role title, company, location, description, responsibilities,
+   requirements, and benefits.
+4. Preserve wording. Do not paraphrase, summarize, or editorialize.
+5. Output Markdown only. No commentary and no code fences."""
 
 
 @cover_letter_writer_agent.output_validator

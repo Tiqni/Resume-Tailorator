@@ -21,7 +21,6 @@ from resume_tailorator.models.agents.output import (
     AuditResult,
     CV,
     FinalReport,
-    ScrapedJobPosting,
 )
 from resume_tailorator.models.workflow import ResumeTailorResult
 from resume_tailorator.utils.markdown_writer import (
@@ -44,6 +43,7 @@ from resume_tailorator.workflows.agents import (
     set_agent_models,
     set_quality_gate,
 )
+from resume_tailorator.tools.job_scraper import fetch_job_markdown
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -434,35 +434,30 @@ async def _tailor_impl(
         with use_reporter(reporter):
             logger.info("scraping_job_posting", extra={"url": job_url})
             try:
+                raw = await fetch_job_markdown(job_url)
                 scrape_result = await run_agent(
                     job_scraper_agent,
-                    f"Extract and convert to Markdown this job posting: {job_url}",
+                    raw.markdown_raw,
                     verbose=verbose,
                     agent_label="Scraper",
                 )
-                if isinstance(scrape_result.output, ScrapedJobPosting):
-                    job_posting_markdown = scrape_result.output.markdown
-                    if not job_posting_markdown.strip():
-                        logger.error(
-                            "job_posting_scraped_but_empty", extra={"url": job_url}
-                        )
-                        console.print(
-                            "[red]❌ Job posting scraped but content is empty[/red]"
-                        )
-                        raise typer.Exit(code=1)
-                    logger.info(
-                        "job_posting_scraped_successfully",
-                        extra={
-                            "url": job_url,
-                            "content_length": len(job_posting_markdown),
-                        },
+                job_posting_markdown = scrape_result.output
+                if not job_posting_markdown.strip():
+                    logger.error(
+                        "job_posting_scraped_but_empty", extra={"url": job_url}
                     )
-                    console.print(f"✅ Job posting scraped successfully from {job_url}")
-                else:
                     console.print(
-                        f"[yellow]⚠️ Unexpected scraper output type: {type(scrape_result.output)}[/yellow]"
+                        "[red]❌ Job posting scraped but content is empty[/red]"
                     )
                     raise typer.Exit(code=1)
+                logger.info(
+                    "job_posting_scraped_successfully",
+                    extra={
+                        "url": job_url,
+                        "content_length": len(job_posting_markdown),
+                    },
+                )
+                console.print(f"✅ Job posting scraped successfully from {job_url}")
             except (typer.Exit, KeyboardInterrupt):
                 raise
             except Exception as e:
